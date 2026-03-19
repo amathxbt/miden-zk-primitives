@@ -1,55 +1,19 @@
 [package]
-name        = "miden-zk-primitives"
+name = "miden-zk-primitives"
 description = "Zero-knowledge cryptographic primitives for Miden VM"
-version.workspace     = true
-edition.workspace     = true
-rust-version.workspace = true
-authors.workspace     = true
-license.workspace     = true
-repository.workspace  = true
-
-[dependencies]
-miden-vm.workspace       = true
-miden-core.workspace     = true
-miden-assembly.workspace = true
-miden-prover.workspace   = true
-miden-verifier.workspace = true
-miden-stdlib.workspace   = true
-anyhow.workspace         = true
-thiserror.workspace      = true
-rand.workspace           = true
-serde      = { workspace = true, optional = true }
-hex.workspace            = true
-tracing.workspace        = true
-
-[dev-dependencies]
-criterion.workspace = true
-proptest.workspace  = true
+keywords = ["zero-knowledge", "miden", "zkp", "merkle", "commitment"]
+categories = ["cryptography", "no-std"]
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [features]
 default = ["std"]
-std     = [
-    "miden-vm/std",
-    "miden-core/std",
-    "miden-prover/std",
-    "miden-verifier/std",
-    "miden-stdlib/std",
-]
-serde   = ["dep:serde", "miden-core/serde"]
+std = ["rand/std", "rand/std_rng"]
 
-[[example]]
-name = "private_voting"
-path = "../../examples/private_voting/main.rs"
+[dependencies]
+rand = { workspace = true, optional = true }
 
-[[example]]
-name = "anonymous_age_proof"
-path = "../../examples/anonymous_age_proof/main.rs"
-
-[[example]]
-name = "zk_set_membership"
-path = "../../examples/zk_set_membership/main.rs"
-
-[[bench]]
-name    = "primitives"
-harness = false
-path    = "../../benches/primitives.rs"
+[dev-dependencies]
+rand = { workspace = true, features = ["std", "std_rng"] }
