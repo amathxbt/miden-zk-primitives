@@ -1,7 +1,7 @@
 //! Pedersen-style commitment scheme.
 //!
 //! A commitment `C = H(value || randomness)` hides the value while binding
-//! the committer to it.  Opening reveals `(value, randomness)`.
+//! the committer to it. Opening reveals `(value, randomness)`.
 
 #[cfg(feature = "std")]
 use rand::Rng;
@@ -13,11 +13,12 @@ pub struct PedersenCommitment {
 }
 
 impl PedersenCommitment {
-    /// Commit to `value` using random blinding factor.
+    /// Commit to `value` using a random blinding factor.
     ///
     /// Returns `(commitment, randomness)`.
     ///
     /// # Example
+    ///
     /// ```
     /// # #[cfg(feature = "std")] {
     /// use miden_zk_primitives::commitment::PedersenCommitment;
@@ -34,16 +35,17 @@ impl PedersenCommitment {
     }
 
     /// Open the commitment: verify that `H(value || randomness) == self`.
+    ///
+    /// Returns `true` if the opening is valid.
     pub fn open(&self, value: u64, randomness: u64) -> bool {
         Self::hash(value, randomness) == self.value
     }
 
     /// Return the raw commitment value (opaque to the verifier).
+    #[must_use]
     pub fn value(&self) -> u64 {
         self.value
     }
-
-    // ── Internal ────────────────────────────────────────────────────────────
 
     fn hash(value: u64, randomness: u64) -> u64 {
         value
@@ -73,7 +75,7 @@ mod tests {
         let mut rng = thread_rng();
         let (c1, _) = PedersenCommitment::commit(7, &mut rng);
         let (c2, _) = PedersenCommitment::commit(7, &mut rng);
-        // With overwhelming probability the two commitments differ
+        // With overwhelming probability the two commitments differ.
         assert_ne!(c1, c2);
     }
 }
