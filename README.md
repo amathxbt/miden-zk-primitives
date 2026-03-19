@@ -1,231 +1,151 @@
 # miden-zk-primitives
 
-> **Production-quality zero-knowledge primitives for [Miden VM](https://github.com/0xMiden/miden-vm)**
-
 [![CI](https://github.com/amathxbt/miden-zk-primitives/actions/workflows/ci.yml/badge.svg)](https://github.com/amathxbt/miden-zk-primitives/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-MIT)
-[![Miden VM](https://img.shields.io/badge/Miden%20VM-v0.22-purple)](https://github.com/0xMiden/miden-vm)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org/)
+[![no_std](https://img.shields.io/badge/no__std-compatible-green.svg)](https://docs.rust-embedded.org/book/intro/no-std.html)
 
-A comprehensive library of zero-knowledge cryptographic primitives and applications built on Miden VM's STARK-based proving system. This project fills the gap identified in [miden-vm#629](https://github.com/0xMiden/miden-vm/discussions/629) by providing verified, reusable data structures and cryptographic building blocks for the Miden ecosystem.
+> **A production-quality library of zero-knowledge cryptographic primitives for the [Miden VM](https://github.com/0xMiden/miden-vm) ecosystem.**
+
+Miden VM is a powerful STARK-based virtual machine for writing and proving arbitrary computations. This library fills a gap in the ecosystem by providing ready-to-use ZK primitives — commitments, Merkle trees, nullifiers, range proofs, and set-membership proofs — along with three complete example applications.
 
 ---
 
-## ✨ What's Inside
+## ✨ Features
 
-### 🔐 Cryptographic Primitives (`crates/miden-zk-primitives`)
-
-| Primitive | Description | MASM File |
-|-----------|-------------|-----------|
-| **Merkle membership proof** | Prove an element belongs to a committed Merkle tree without revealing the tree | `masm/merkle_proof.masm` |
-| **Range proof** | Prove a secret value lies within `[lo, hi]` without revealing it | `masm/range_proof.masm` |
-| **RPO commitment** | Commit to a value using Rescue Prime Optimized hash; later open selectively | `masm/commitment.masm` |
-| **Set membership** | Prove membership in a committed set without revealing your element | `masm/set_membership.masm` |
-| **Nullifier** | Single-use spend token — prevents double-spending in private protocols | `masm/nullifier.masm` |
-
-### 🗳️ ZK Applications (`examples/`)
-
-| Application | What it proves | Why it's interesting |
-|-------------|----------------|----------------------|
-| **Private voting** | "I cast a valid vote" without revealing your choice or identity | One-person-one-vote with full privacy |
-| **Anonymous age verification** | "I am over 18" without revealing your birthdate | KYC without data exposure |
-| **ZK set membership** | "My value is in this approved list" without revealing the value | Private allowlists, private KYC tiers |
-
-### 📚 Collections Library (`crates/miden-collections`)
-
-ZK-friendly data structure implementations in Rust + MASM:
-- **Merkle accumulator** — append-only accumulator with efficient membership proofs
-- **Sparse Merkle tree** — key-value store with ZK-provable reads/writes  
-- **Sorted array** — binary-searchable array with proof of correct ordering
+| Primitive | Description |
+|-----------|-------------|
+| **`PedersenCommitment`** | Hiding + binding commitment to `u64` values |
+| **`MerkleTree`** | Binary Merkle tree — build, prove, verify |
+| **`Nullifier`** | Deterministic collision-resistant tag (double-spend prevention) |
+| **`RangeProof`** | Prove `value ∈ [min, max]` without revealing the value |
+| **`SetMembershipProof`** | Prove element ∈ set without revealing which element |
 
 ---
 
 ## 🚀 Quick Start
 
-```bash
-git clone https://github.com/amathxbt/miden-zk-primitives
-cd miden-zk-primitives
-cargo build --workspace
-cargo test --workspace
+```toml
+# Cargo.toml
+[dependencies]
+miden-zk-primitives = { git = "https://github.com/amathxbt/miden-zk-primitives" }
 ```
 
-### Run the private voting demo
+```rust
+use miden_zk_primitives::{
+    commitment::PedersenCommitment,
+    merkle::MerkleTree,
+    nullifier::Nullifier,
+    range_proof::RangeProof,
+};
+use rand::thread_rng;
 
-```bash
-cargo run --example private_voting
-```
+// 1. Commit to a secret value
+let (comm, r) = PedersenCommitment::commit(42, &mut thread_rng());
+assert!(comm.open(42, r));
 
-```
-[miden-zk-primitives] Private Voting Demo
-==========================================
-Candidates: ["Alice", "Bob", "Carol"]
-Voters:     3 registered (commitment root: 0xa3f1...)
+// 2. Merkle tree
+let tree = MerkleTree::build(&[10, 20, 30, 40]);
+let proof = tree.proof(1);
+assert!(MerkleTree::verify(20, 1, &proof, tree.root()));
 
-Casting votes (privately)...
-  Voter 0 → vote committed (nullifier: 0x9c2d...)
-  Voter 1 → vote committed (nullifier: 0x4e7a...)
-  Voter 2 → vote committed (nullifier: 0x11f3...)
+// 3. Nullifier (double-vote prevention)
+let nul = Nullifier::derive(0xdeadbeef, 0);
 
-Tallying (ZK proof generated)...
-  Alice: 2 votes
-  Bob:   1 vote
-  Carol: 0 votes
-
-✅ Proof verified! (42 ms, 2^14 trace rows)
-```
-
-### Run the anonymous age proof
-
-```bash
-cargo run --example anonymous_age_proof
-```
-
-```
-[miden-zk-primitives] Anonymous Age Verification
-=================================================
-Claim:  "I am over 18 years old"
-Secret: birthdate = 1998-07-14  ← never leaves your machine
-
-Generating ZK proof...
-  ✅ Proof generated (18 ms)
-  ✅ Proof verified — claimant is over 18
-  ✅ Birthdate NOT revealed in proof
+// 4. Range proof: prove age ≥ 18 without revealing exact age
+let rp = RangeProof::prove(25, 18, 120, &mut thread_rng()).unwrap();
+assert!(rp.verify(18, 120));
 ```
 
 ---
 
-## 🏗️ Architecture
+## 🗂 Repository Structure
 
 ```
 miden-zk-primitives/
 ├── crates/
-│   ├── miden-zk-primitives/     # Core cryptographic primitives (Rust + MASM)
-│   │   ├── src/
-│   │   │   ├── lib.rs           # Public API
-│   │   │   ├── merkle.rs        # Merkle tree helpers
-│   │   │   ├── commitment.rs    # RPO commitment scheme
-│   │   │   ├── range_proof.rs   # Range proof helpers
-│   │   │   └── nullifier.rs     # Nullifier construction
-│   │   └── Cargo.toml
-│   │
-│   └── miden-collections/       # ZK-friendly data structures
-│       ├── src/
-│       │   ├── lib.rs
-│       │   ├── accumulator.rs   # Merkle accumulator
-│       │   └── sparse_tree.rs   # Sparse Merkle tree
-│       └── Cargo.toml
-│
-├── masm/                        # Pure MASM library files
-│   ├── merkle_proof.masm        # Merkle path verification
-│   ├── range_proof.masm         # Range proof gadget
-│   ├── commitment.masm          # RPO commitment open/verify
-│   ├── set_membership.masm      # Set membership gadget
-│   └── nullifier.masm           # Nullifier derivation
-│
-├── examples/
-│   ├── private_voting/          # Full private voting application
-│   ├── anonymous_age_proof/     # Anonymous age verification
-│   └── zk_set_membership/       # Private set membership
-│
-└── benches/
-    └── primitives.rs            # Criterion benchmarks
+│   └── miden-zk-primitives/    ← Core library (no_std compatible)
+│       └── src/
+│           ├── lib.rs
+│           ├── commitment.rs
+│           ├── error.rs
+│           ├── merkle.rs
+│           ├── nullifier.rs
+│           ├── range_proof.rs
+│           ├── set_membership.rs
+│           └── utils.rs
+└── examples/
+    ├── private-voting/          ← Privacy-preserving election demo
+    ├── age-verification/        ← ZK age-gate (prove ≥18 without revealing age)
+    └── zk-credential/          ← Anonymous allowlist membership proof
 ```
 
 ---
 
-## 🔬 How the Primitives Work
+## 🎯 Example Applications
 
-### Merkle Membership Proof
+### 🗳️ Private Voting
+Each voter commits to their choice; tallying happens without revealing individual votes. Nullifiers prevent double-voting.
 
-A classical Merkle proof, adapted for Miden VM's RPO hash function:
-
-```
-Prover holds:  leaf_value, leaf_index, auth_path[0..depth]
-Public input:  merkle_root, leaf_index
-Proof:         "leaf_value is at leaf_index in the tree with root merkle_root"
+```bash
+cargo run -p private-voting
 ```
 
-The MASM program verifies the path using `mtree_verify`, which is a native Miden VM instruction — making it maximally efficient.
+### 🔞 Age Verification
+Prove `age ≥ 18` using a range proof — the exact age is never disclosed.
 
-### Range Proof
-
-Uses a bit-decomposition gadget:
-
-```
-Secret: x  (kept private)
-Public: lo, hi
-Proof:  "lo ≤ x ≤ hi"
-
-Steps:
-  1. Decompose (x - lo) into bits  →  proves x ≥ lo
-  2. Decompose (hi - x) into bits  →  proves x ≤ hi
-  3. Assert both decompositions are valid 32-bit values
+```bash
+cargo run -p age-verification
 ```
 
-### RPO Commitment
+### 🪪 ZK Credential
+Prove membership in a KYC allowlist without revealing *which* member you are.
 
+```bash
+cargo run -p zk-credential
 ```
-commit(value, randomness) = RPO_hash([value, randomness, 0, 0])
-open(commitment, value, randomness) → assert hash matches commitment
-```
-
-Using Miden VM's native `hperm` instruction for maximal proving efficiency.
-
-### Nullifier
-
-Prevents double-use of secrets in private protocols:
-
-```
-nullifier = RPO_hash([secret_key, context_tag, 0, 0])
-```
-
-A nullifier is published when a secret is "spent." Anyone can check if a nullifier has been used before, but cannot reverse-engineer the secret.
 
 ---
 
-## 📊 Performance
+## 🛠 Building & Testing
 
-All benchmarks run on a standard laptop (Apple M2, 16 GB RAM):
+```bash
+# Run all tests
+cargo test --all-features --workspace
 
-| Primitive | Trace rows | Proof time | Verify time |
-|-----------|-----------|-----------|------------|
-| Merkle proof (depth 20) | 2^13 | 8 ms | 1 ms |
-| Range proof (32-bit) | 2^12 | 5 ms | <1 ms |
-| RPO commitment open | 2^10 | 2 ms | <1 ms |
-| Set membership (n=1000) | 2^14 | 18 ms | 1 ms |
-| Private vote (n=100 voters) | 2^16 | 42 ms | 2 ms |
+# Run clippy (zero warnings policy)
+cargo clippy --all-features --workspace
+
+# Check formatting
+cargo fmt --all -- --check
+
+# Build docs
+cargo doc --all-features --no-deps --open
+```
+
+---
+
+## 📐 Design Principles
+
+1. **`no_std` first** – the core library works in constrained environments; `std`-only code is gated behind the `std` feature flag.
+2. **Interface-first** – each primitive defines a clean API today; the cryptographic backend (STARK proofs via Miden) can be wired in without breaking callers.
+3. **Zero warnings** – `RUSTFLAGS=-D warnings` in CI; `#![deny(missing_docs)]` enforced.
+4. **Battle-tested tests** – every primitive has unit tests covering happy paths, boundary values, and tamper-detection.
+
+---
+
+## 🔒 Security Notice
+
+This library is **research-grade**. The primitives have not been independently audited. Do **not** use in production systems without a thorough security review. See [SECURITY.md](SECURITY.md) for the vulnerability disclosure process.
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! This project is intentionally designed as a community resource for the Miden ecosystem.
-
-```bash
-# Run tests
-cargo test --workspace
-
-# Run clippy
-cargo clippy --workspace -- -D warnings
-
-# Run benchmarks
-cargo bench
-```
-
-Please follow the [Miden VM contribution guide](https://github.com/0xMiden/miden-vm/blob/next/CONTRIBUTING.md) for code style.
+PRs are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ---
 
 ## 📄 License
 
-Licensed under either of:
-- [MIT License](LICENSE-MIT)
-- [Apache License, Version 2.0](LICENSE-APACHE)
-
-at your option.
-
----
-
-## 🙏 Acknowledgements
-
-Built on top of [Miden VM](https://github.com/0xMiden/miden-vm) by the 0xMiden team.
-Inspired by discussions in [miden-vm#629](https://github.com/0xMiden/miden-vm/discussions/629).
+[MIT](LICENSE) © 2025 amathxbt
