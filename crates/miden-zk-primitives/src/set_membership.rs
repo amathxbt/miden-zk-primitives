@@ -1,7 +1,10 @@
 //! Set-membership proof: prove an element belongs to a committed set
-//! without revealing *which* element it is.
+//! without revealing which element it is.
 
 use crate::error::PrimitiveError;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 /// A (simulated) set-membership proof.
 #[derive(Debug, Clone)]
@@ -18,6 +21,7 @@ impl SetMembershipProof {
     /// Returns `Err(PrimitiveError::NotAMember)` if the element is absent.
     ///
     /// # Example
+    ///
     /// ```
     /// use miden_zk_primitives::set_membership::SetMembershipProof;
     /// let set = vec![10u64, 20, 30];
@@ -29,19 +33,18 @@ impl SetMembershipProof {
             .iter()
             .position(|&x| x == element)
             .ok_or(PrimitiveError::NotAMember)?;
-
         let root = Self::merkle_root(set);
         Ok(Self { root, index })
     }
 
     /// Verify the proof against the same set.
+    ///
+    /// Returns `true` if the proof is valid.
+    #[must_use]
     pub fn verify(&self, set: &[u64]) -> bool {
         Self::merkle_root(set) == self.root && self.index < set.len()
     }
 
-    // ── Internal helpers ────────────────────────────────────────────────────
-
-    /// Compute a simple Merkle-style root over the set elements.
     fn merkle_root(set: &[u64]) -> u64 {
         set.iter().fold(0u64, |acc, &x| {
             acc.wrapping_add(x.wrapping_mul(0x9e37_79b9_7f4a_7c15))
