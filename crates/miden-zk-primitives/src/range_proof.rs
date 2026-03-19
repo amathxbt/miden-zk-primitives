@@ -1,7 +1,7 @@
-//! Simplified range proof over `u64` values.
+//! Range proof over `u64` values.
 //!
 //! In a full Miden VM integration the proof would be generated and verified as
-//! a STARK proof.  Here we implement the *interface* so applications compile and
+//! a STARK proof. Here we implement the *interface* so applications compile and
 //! tests pass; the cryptographic backend can be swapped in later.
 
 use crate::error::PrimitiveError;
@@ -11,8 +11,6 @@ use rand::Rng;
 /// A (simulated) range proof attesting that a committed value lies in `[min, max]`.
 #[derive(Debug, Clone)]
 pub struct RangeProof {
-    /// Commitment to the value (hash of value || randomness).
-    commitment: u64,
     /// The lower bound used during proving.
     min: u64,
     /// The upper bound used during proving.
@@ -20,11 +18,12 @@ pub struct RangeProof {
 }
 
 impl RangeProof {
-    /// Create a range proof that `value ∈ [min, max]`.
+    /// Create a range proof that `value` is in `[min, max]`.
     ///
     /// Returns `Err` if `value` is outside the range.
     ///
     /// # Example
+    ///
     /// ```
     /// # #[cfg(feature = "std")] {
     /// use miden_zk_primitives::range_proof::RangeProof;
@@ -43,17 +42,15 @@ impl RangeProof {
         if value < min || value > max {
             return Err(PrimitiveError::OutOfRange { value, min, max });
         }
-        // Commitment = simple hash-mix for illustration purposes.
-        let randomness: u64 = rng.gen();
-        let commitment = value
-            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            .wrapping_add(randomness);
-        Ok(Self { commitment, min, max })
+        // Consume randomness so the signature matches a real prover.
+        let _randomness: u64 = rng.gen();
+        Ok(Self { min, max })
     }
 
     /// Verify the proof against the same `[min, max]` range.
     ///
     /// Returns `true` if the proof is valid.
+    #[must_use]
     pub fn verify(&self, min: u64, max: u64) -> bool {
         // In a real implementation this checks the STARK proof.
         self.min == min && self.max == max
@@ -81,7 +78,11 @@ mod tests {
         let err = RangeProof::prove(200, 0, 100, &mut rng).unwrap_err();
         assert_eq!(
             err,
-            PrimitiveError::OutOfRange { value: 200, min: 0, max: 100 }
+            PrimitiveError::OutOfRange {
+                value: 200,
+                min: 0,
+                max: 100
+            }
         );
     }
 
@@ -89,7 +90,11 @@ mod tests {
     #[cfg(feature = "std")]
     fn boundary_values_accepted() {
         let mut rng = thread_rng();
-        assert!(RangeProof::prove(0, 0, 100, &mut rng).unwrap().verify(0, 100));
-        assert!(RangeProof::prove(100, 0, 100, &mut rng).unwrap().verify(0, 100));
+        assert!(RangeProof::prove(0, 0, 100, &mut rng)
+            .unwrap()
+            .verify(0, 100));
+        assert!(RangeProof::prove(100, 0, 100, &mut rng)
+            .unwrap()
+            .verify(0, 100));
     }
 }
