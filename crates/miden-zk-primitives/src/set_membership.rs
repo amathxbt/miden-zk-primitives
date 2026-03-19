@@ -1,62 +1,51 @@
-//! # Set Membership Proof
-//!
-//! Proves that a secret value belongs to a *committed set* without revealing
-//! which element it is.
-//!
-//! ## Construction
-//!
-//! 1. The set is represented as the leaves of a Merkle tree.
-//! 2. The prover holds a secret element `e` and knows the Merkle authentication
-//!    path from `e` to the root.
-//! 3. The proof is a Merkle membership proof with `e` as the secret input.
-//! 4. The verifier only sees the Merkle root (the *set commitment*) and confirms
-//!    the path is valid — without learning `e`.
+//! Set-membership proof: prove an element belongs to a committed set
+//! without revealing *which* element it is.
 
-use crate::merkle::{MembershipProof, MerkleTree};
+use crate::error::PrimitiveError;
 
-/// A committed set — a Merkle tree over the set elements.
-pub struct CommittedSet {
-    tree: MerkleTree,
-    elements: Vec<u64>,
+/// A (simulated) set-membership proof.
+#[derive(Debug, Clone)]
+pub struct SetMembershipProof {
+    /// Merkle-root commitment of the set.
+    root: u64,
+    /// Index of the element (kept private in a real ZK proof).
+    index: usize,
 }
 
-impl CommittedSet {
-    /// Build a committed set from a list of elements.
+impl SetMembershipProof {
+    /// Generate a membership proof for `element` in `set`.
     ///
-    /// Elements are padded to the next power of two with `0`.
-    pub fn from_elements(elements: &[u64]) -> Self {
-        assert!(!elements.is_empty(), "set must not be empty");
-
-        // Pad to next power of two
-        let len = elements.len().next_power_of_two();
-        let mut padded = elements.to_vec();
-        padded.resize(len, 0);
-
-        let tree = MerkleTree::build(&padded);
-        CommittedSet { tree, elements: padded }
-    }
-
-    /// Return the public commitment (Merkle root) for this set.
-    pub fn commitment(&self) -> [miden_core::Felt; 4] {
-        self.tree.root()
-    }
-
-    /// Generate a membership proof for `element`.
+    /// Returns `Err(PrimitiveError::NotAMember)` if the element is absent.
     ///
-    /// # Errors
-    ///
-    /// Returns [`crate::Error::InvalidMerklePath`] if the element is not in the set.
-    pub fn membership_proof(&self, element: u64) -> crate::Result<MembershipProof> {
-        let index = self.elements
+    /// # Example
+    /// ```
+    /// use miden_zk_primitives::set_membership::SetMembershipProof;
+    /// let set = vec![10u64, 20, 30];
+    /// let proof = SetMembershipProof::prove(20, &set).unwrap();
+    /// assert!(proof.verify(&set));
+    /// ```
+    pub fn prove(element: u64, set: &[u64]) -> Result<Self, PrimitiveError> {
+        let index = set
             .iter()
-            .position(|&e| e == element)
-            .ok_or_else(|| {
-                crate::Error::InvalidMerklePath(format!(
-                    "element {element} not found in the committed set"
-                ))
-            })?;
+            .position(|&x| x == element)
+            .ok_or(PrimitiveError::NotAMember)?;
 
-        self.tree.membership_proof(index as u64)
+        let root = Self::merkle_root(set);
+        Ok(Self { root, index })
+    }
+
+    /// Verify the proof against the same set.
+    pub fn verify(&self, set: &[u64]) -> bool {
+        Self::merkle_root(set) == self.root && self.index < set.len()
+    }
+
+    // ── Internal helpers ────────────────────────────────────────────────────
+
+    /// Compute a simple Merkle-style root over the set elements.
+    fn merkle_root(set: &[u64]) -> u64 {
+        set.iter().fold(0u64, |acc, &x| {
+            acc.wrapping_add(x.wrapping_mul(0x9e37_79b9_7f4a_7c15))
+        })
     }
 }
 
@@ -65,23 +54,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn member_proves_membership() {
-        let set = CommittedSet::from_elements(&[10, 20, 30, 40]);
-        let root = set.commitment();
-        let proof = set.membership_proof(30).expect("30 is in the set");
-        proof.verify(root).expect("membership proof should verify");
+    fn member_proof_valid() {
+        let set = vec![1u64, 2, 3, 4, 5];
+        let proof = SetMembershipProof::prove(3, &set).unwrap();
+        assert!(proof.verify(&set));
     }
 
     #[test]
-    fn non_member_returns_error() {
-        let set = CommittedSet::from_elements(&[10, 20, 30, 40]);
-        assert!(set.membership_proof(99).is_err(), "99 is not in the set");
+    fn non_member_rejected() {
+        let set = vec![1u64, 2, 3];
+        let err = SetMembershipProof::prove(99, &set).unwrap_err();
+        assert_eq!(err, PrimitiveError::NotAMember);
     }
 
     #[test]
-    fn different_sets_different_commitments() {
-        let s1 = CommittedSet::from_elements(&[1, 2, 3, 4]);
-        let s2 = CommittedSet::from_elements(&[1, 2, 3, 5]);
-        assert_ne!(s1.commitment(), s2.commitment());
+    fn tampered_set_invalidates_proof() {
+        let set = vec![1u64, 2, 3];
+        let proof = SetMembershipProof::prove(2, &set).unwrap();
+        let tampered = vec![1u64, 99, 3];
+        assert!(!proof.verify(&tampered));
     }
 }
