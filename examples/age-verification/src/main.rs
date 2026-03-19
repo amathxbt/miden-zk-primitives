@@ -1,0 +1,33 @@
+//! Age-verification example.
+//!
+//! Proves that `age >= 18` without disclosing the exact age.
+//! Uses a range proof: commit to `age`, then prove the committed
+//! value lies in [18, 120].
+
+use miden_zk_primitives::range_proof::RangeProof;
+use rand::thread_rng;
+
+fn age_gate(age: u64) -> bool {
+    let mut rng = thread_rng();
+    println!("Generating range proof for age = {} (hidden)...", age);
+    match RangeProof::prove(age, 18, 120, &mut rng) {
+        Ok(proof) => {
+            let ok = proof.verify(18, 120);
+            println!("  Proof valid: {ok}");
+            ok
+        }
+        Err(e) => {
+            println!("  Cannot prove: {e}");
+            false
+        }
+    }
+}
+
+fn main() {
+    println!("=== Miden ZK Age Verification Demo ===\n");
+
+    for age in [17u64, 18, 25, 119, 120, 121] {
+        let allowed = age_gate(age);
+        println!("  Age {age}: access {}\n", if allowed { "GRANTED ✅" } else { "DENIED  ❌" });
+    }
+}
