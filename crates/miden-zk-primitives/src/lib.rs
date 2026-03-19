@@ -1,68 +1,59 @@
 //! # miden-zk-primitives
 //!
-//! Production-quality zero-knowledge cryptographic primitives for Miden VM.
+//! A production-quality library of zero-knowledge primitives for the
+//! [Miden VM](https://github.com/0xMiden/miden-vm) ecosystem.
 //!
-//! ## Primitives
+//! ## Modules
 //!
-//! - [`merkle`] — Merkle membership proof helpers
-//! - [`commitment`] — RPO-based commitment scheme
-//! - [`range_proof`] — Range proof (prove a ≤ x ≤ b without revealing x)
-//! - [`nullifier`] — Single-use nullifier construction
-//! - [`set_membership`] — Set membership proof
+//! | Module | Description |
+//! |--------|-------------|
+//! | [`commitment`] | Pedersen-style hiding commitments |
+//! | [`merkle`]     | Binary Merkle tree with proof generation & verification |
+//! | [`nullifier`]  | Deterministic nullifier derivation |
+//! | [`range_proof`]| Range proofs over `u64` values |
+//! | [`set_membership`] | Set-membership proofs |
+//! | [`utils`]      | Shared helpers |
 //!
-//! ## Example
+//! ## Feature Flags
 //!
-//! ```rust,no_run
-//! use miden_zk_primitives::commitment::Commitment;
+//! | Flag  | Default | Description |
+//! |-------|---------|-------------|
+//! | `std` | yes     | Enables `std`-dependent code (randomness, I/O) |
+//!
+//! ## Quick Start
+//!
+//! ```no_run
+//! # #[cfg(feature = "std")] {
+//! use miden_zk_primitives::{commitment::PedersenCommitment, merkle::MerkleTree};
+//! use rand::thread_rng;
 //!
 //! // Commit to a secret value
-//! let (commitment, opening) = Commitment::commit(42u64, rand::random());
+//! let (comm, randomness) = PedersenCommitment::commit(42, &mut thread_rng());
+//! assert!(comm.open(42, randomness));
 //!
-//! // Later, prove knowledge of the opening
-//! let proof = opening.prove().expect("proof generation failed");
-//! assert!(proof.verify(&commitment).is_ok());
+//! // Build a Merkle tree and verify a proof
+//! let tree = MerkleTree::build(&[1, 2, 3, 4]);
+//! let proof = tree.proof(0);
+//! assert!(MerkleTree::verify(1, 0, &proof, tree.root()));
+//! # }
 //! ```
 
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
+#![cfg_attr(not(feature = "std"), no_std)]
+#![deny(
+    missing_docs,
+    rustdoc::broken_intra_doc_links,
+    unreachable_pub
+)]
+#![warn(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery
+)]
 
 pub mod commitment;
+pub mod error;
 pub mod merkle;
 pub mod nullifier;
 pub mod range_proof;
 pub mod set_membership;
 pub mod utils;
-
-/// Re-export core Miden types used throughout the API.
-pub use miden_core::{Felt, FieldElement, Word, ZERO};
-
-/// Convenience result type for this crate.
-pub type Result<T> = std::result::Result<T, Error>;
-
-/// Top-level error type.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// The ZK proof failed to verify.
-    #[error("proof verification failed: {0}")]
-    VerificationFailed(String),
-
-    /// The proof generation failed.
-    #[error("proof generation failed: {0}")]
-    ProofGenerationFailed(String),
-
-    /// A Merkle path is inconsistent.
-    #[error("invalid merkle path: {0}")]
-    InvalidMerklePath(String),
-
-    /// A range bound was violated.
-    #[error("range violation: value {value} not in [{lo}, {hi}]")]
-    RangeViolation { value: u64, lo: u64, hi: u64 },
-
-    /// Assembly compilation error.
-    #[error("assembly error: {0}")]
-    AssemblyError(String),
-
-    /// Generic internal error.
-    #[error("internal error: {0}")]
-    Internal(#[from] anyhow::Error),
-}
