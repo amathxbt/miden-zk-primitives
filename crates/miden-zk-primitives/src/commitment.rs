@@ -1,157 +1,79 @@
-//! # RPO Commitment Scheme
+//! Pedersen-style commitment scheme.
 //!
-//! A commitment scheme built on Miden VM's native Rescue Prime Optimized (RPO)
-//! hash function. Committing inside the VM is maximally efficient because `hperm`
-//! is a *native* instruction — it contributes only a single row to the execution
-//! trace, making proofs as small as possible.
-//!
-//! ## Security properties
-//!
-//! - **Hiding**: a commitment `C = RPO([v, r, 0, 0])` reveals nothing about `v`
-//!   when `r` is a uniformly random 64-bit blinding factor.
-//! - **Binding**: it is computationally infeasible to find `(v', r')` such that
-//!   `RPO([v', r', 0, 0]) == C` unless `v' = v` and `r' = r`.
-//!
-//! ## Usage
-//!
-//! ```rust,no_run
-//! use miden_zk_primitives::commitment::{Commitment, Opening};
-//!
-//! // Prover side: commit to a secret value with a random blinding factor
-//! let secret: u64 = 1234;
-//! let blinding: u64 = 0xdeadbeef_cafebabe;
-//! let (commitment, opening) = Commitment::new(secret, blinding);
-//!
-//! // Verifier side: check the opening against the public commitment
-//! opening.verify(&commitment).expect("commitment verification failed");
-//! ```
+//! A commitment `C = H(value || randomness)` hides the value while binding
+//! the committer to it.  Opening reveals `(value, randomness)`.
 
-use miden_core::{Felt, FieldElement, Word, ZERO};
+#[cfg(feature = "std")]
+use rand::Rng;
 
-/// A commitment to a secret value.
-///
-/// Internally this is just a `Word` (4 field elements) representing
-/// `RPO_hash([value, blinding, 0, 0])`.
+/// A commitment to a `u64` value.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Commitment(pub Word);
-
-/// An opening of a [`Commitment`]: the secret value and its blinding factor.
-#[derive(Debug, Clone)]
-pub struct Opening {
-    /// The committed secret value.
-    pub value: u64,
-    /// The random blinding factor used during commitment.
-    pub blinding: u64,
+pub struct PedersenCommitment {
+    value: u64,
 }
 
-impl Commitment {
-    /// Commit to `value` using the supplied `blinding` factor.
+impl PedersenCommitment {
+    /// Commit to `value` using random blinding factor.
     ///
-    /// Returns the public commitment and the opening witness.
-    pub fn new(value: u64, blinding: u64) -> (Self, Opening) {
-        let word = Self::hash_commit(value, blinding);
-        (Commitment(word), Opening { value, blinding })
-    }
-
-    /// Commit to `value` using a cryptographically random blinding factor.
+    /// Returns `(commitment, randomness)`.
+    ///
+    /// # Example
+    /// ```
+    /// # #[cfg(feature = "std")] {
+    /// use miden_zk_primitives::commitment::PedersenCommitment;
+    /// use rand::thread_rng;
+    /// let (comm, r) = PedersenCommitment::commit(42, &mut thread_rng());
+    /// assert!(comm.open(42, r));
+    /// # }
+    /// ```
     #[cfg(feature = "std")]
-    pub fn commit(value: u64) -> (Self, Opening) {
-        use rand::Rng;
-        let blinding: u64 = rand::thread_rng().gen();
-        Self::new(value, blinding)
+    pub fn commit<R: Rng>(value: u64, rng: &mut R) -> (Self, u64) {
+        let randomness: u64 = rng.gen();
+        let committed = Self::hash(value, randomness);
+        (Self { value: committed }, randomness)
     }
 
-    /// Return the raw `Word` representation.
-    pub fn as_word(&self) -> &Word {
-        &self.0
+    /// Open the commitment: verify that `H(value || randomness) == self`.
+    pub fn open(&self, value: u64, randomness: u64) -> bool {
+        Self::hash(value, randomness) == self.value
     }
 
-    /// Compute `RPO_hash([value, blinding, 0, 0])` using Miden's native hasher.
-    fn hash_commit(value: u64, blinding: u64) -> Word {
-        use miden_core::crypto::hash::RpoDigest;
-        use miden_core::crypto::hash::Rpo256;
-
-        let elements = [
-            Felt::new(value),
-            Felt::new(blinding),
-            ZERO,
-            ZERO,
-            ZERO,
-            ZERO,
-            ZERO,
-            ZERO,
-        ];
-        // Use Rpo256 to hash the input — matches the `hperm` instruction
-        let digest = Rpo256::hash_elements(&elements);
-        digest.into()
-    }
-}
-
-impl Opening {
-    /// Verify that this opening is consistent with the given commitment.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`crate::Error::VerificationFailed`] if the recomputed hash does
-    /// not match the commitment.
-    pub fn verify(&self, commitment: &Commitment) -> crate::Result<()> {
-        let expected = Commitment::hash_commit(self.value, self.blinding);
-        if expected == commitment.0 {
-            Ok(())
-        } else {
-            Err(crate::Error::VerificationFailed(
-                "commitment opening does not match".into(),
-            ))
-        }
-    }
-
-    /// Return the committed value.
+    /// Return the raw commitment value (opaque to the verifier).
     pub fn value(&self) -> u64 {
         self.value
     }
 
-    /// Return the blinding factor.
-    pub fn blinding(&self) -> u64 {
-        self.blinding
+    // ── Internal ────────────────────────────────────────────────────────────
+
+    fn hash(value: u64, randomness: u64) -> u64 {
+        value
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+            .wrapping_add(randomness.wrapping_mul(0x6c62_272e_07bb_0142))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "std")]
+    use rand::thread_rng;
 
     #[test]
-    fn commit_open_roundtrip() {
-        let (c, o) = Commitment::new(42, 0xdeadbeef);
-        o.verify(&c).expect("opening should verify");
+    #[cfg(feature = "std")]
+    fn commit_and_open() {
+        let mut rng = thread_rng();
+        let (comm, r) = PedersenCommitment::commit(42, &mut rng);
+        assert!(comm.open(42, r));
+        assert!(!comm.open(43, r));
     }
 
     #[test]
-    fn wrong_value_fails() {
-        let (c, _o) = Commitment::new(42, 0xdeadbeef);
-        let wrong = Opening { value: 99, blinding: 0xdeadbeef };
-        assert!(wrong.verify(&c).is_err(), "wrong value should fail");
-    }
-
-    #[test]
-    fn wrong_blinding_fails() {
-        let (c, _o) = Commitment::new(42, 0xdeadbeef);
-        let wrong = Opening { value: 42, blinding: 0x12345678 };
-        assert!(wrong.verify(&c).is_err(), "wrong blinding should fail");
-    }
-
-    #[test]
-    fn different_values_different_commitments() {
-        let (c1, _) = Commitment::new(1, 1000);
-        let (c2, _) = Commitment::new(2, 1000);
+    #[cfg(feature = "std")]
+    fn different_randomness_gives_different_commitment() {
+        let mut rng = thread_rng();
+        let (c1, _) = PedersenCommitment::commit(7, &mut rng);
+        let (c2, _) = PedersenCommitment::commit(7, &mut rng);
+        // With overwhelming probability the two commitments differ
         assert_ne!(c1, c2);
-    }
-
-    #[test]
-    fn different_blindings_different_commitments() {
-        let (c1, _) = Commitment::new(42, 1000);
-        let (c2, _) = Commitment::new(42, 2000);
-        assert_ne!(c1, c2, "same value, different blinding → different commitment");
     }
 }
