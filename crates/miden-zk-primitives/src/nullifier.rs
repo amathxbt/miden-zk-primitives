@@ -1,7 +1,7 @@
-//! Nullifier derivation for double-spend / double-vote prevention.
+//! Nullifier derivation for double-spend and double-vote prevention.
 //!
 //! A nullifier is a deterministic, collision-resistant tag derived from a
-//! secret value.  Submitting the same nullifier twice signals a replay.
+//! secret value. Submitting the same nullifier twice signals a replay.
 
 /// A nullifier tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -11,12 +11,14 @@ impl Nullifier {
     /// Derive a nullifier from a `secret` and a domain-separation `index`.
     ///
     /// # Example
+    ///
     /// ```
     /// use miden_zk_primitives::nullifier::Nullifier;
-    /// let n1 = Nullifier::derive(0xdeadbeef, 0);
-    /// let n2 = Nullifier::derive(0xdeadbeef, 1);
+    /// let n1 = Nullifier::derive(0xdead_beef, 0);
+    /// let n2 = Nullifier::derive(0xdead_beef, 1);
     /// assert_ne!(n1, n2);
     /// ```
+    #[must_use]
     pub fn derive(secret: u64, index: u64) -> Self {
         let v = secret
             .wrapping_mul(0x9e37_79b9_7f4a_7c15)
@@ -26,6 +28,7 @@ impl Nullifier {
     }
 
     /// Return the raw nullifier value.
+    #[must_use]
     pub fn value(self) -> u64 {
         self.0
     }
