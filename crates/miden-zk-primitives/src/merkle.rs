@@ -4,10 +4,13 @@
 //! In production, replace the hash function with RPO (Rescue Prime
 //! Optimised) as used by Miden.
 
-/// A binary Merkle tree stored as a flat vector of levels (leaves → root).
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
+/// A binary Merkle tree stored as a flat vector of levels (leaves to root).
 #[derive(Debug, Clone)]
 pub struct MerkleTree {
-    /// `levels[0]` = leaves, `levels[last]` = [root].
+    /// `levels[0]` = leaves, `levels[last]` = `[root]`.
     levels: Vec<Vec<u64>>,
 }
 
@@ -16,12 +19,18 @@ impl MerkleTree {
     ///
     /// The number of leaves is padded to the next power of two.
     ///
+    /// # Panics
+    ///
+    /// Panics if `leaves` is empty.
+    ///
     /// # Example
+    ///
     /// ```
     /// use miden_zk_primitives::merkle::MerkleTree;
     /// let tree = MerkleTree::build(&[1, 2, 3, 4]);
     /// assert_eq!(tree.depth(), 2);
     /// ```
+    #[must_use]
     pub fn build(leaves: &[u64]) -> Self {
         assert!(!leaves.is_empty(), "leaves must not be empty");
         let n = leaves.len().next_power_of_two();
@@ -41,33 +50,37 @@ impl MerkleTree {
     }
 
     /// Return the Merkle root.
+    #[must_use]
     pub fn root(&self) -> u64 {
         *self.levels.last().unwrap().first().unwrap()
     }
 
-    /// Return the tree depth (number of levels minus 1).
+    /// Return the tree depth (number of levels minus one).
+    #[must_use]
     pub fn depth(&self) -> usize {
         self.levels.len() - 1
     }
 
-    /// Generate a Merkle proof (sibling hashes) for leaf at `index`.
+    /// Generate a Merkle proof (sibling hashes) for the leaf at `index`.
+    #[must_use]
     pub fn proof(&self, index: usize) -> Vec<u64> {
         let mut siblings = Vec::new();
         let mut idx = index;
         for level in &self.levels[..self.levels.len() - 1] {
-            let sibling = if idx % 2 == 0 { idx + 1 } else { idx - 1 };
+            let sibling = if idx.is_multiple_of(2) { idx + 1 } else { idx - 1 };
             siblings.push(level[sibling.min(level.len() - 1)]);
             idx /= 2;
         }
         siblings
     }
 
-    /// Verify a Merkle proof for `leaf` at `index`.
+    /// Verify a Merkle proof for `leaf` at `index` against the given `root`.
+    #[must_use]
     pub fn verify(leaf: u64, index: usize, proof: &[u64], root: u64) -> bool {
         let mut current = leaf;
         let mut idx = index;
         for &sibling in proof {
-            current = if idx % 2 == 0 {
+            current = if idx.is_multiple_of(2) {
                 Self::hash_pair(current, sibling)
             } else {
                 Self::hash_pair(sibling, current)
@@ -76,8 +89,6 @@ impl MerkleTree {
         }
         current == root
     }
-
-    // ── Internal ────────────────────────────────────────────────────────────
 
     fn hash_pair(left: u64, right: u64) -> u64 {
         left.wrapping_mul(0x9e37_79b9_7f4a_7c15)
