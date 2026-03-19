@@ -12,7 +12,4 @@ path = "src/main.rs"
 
 [dependencies]
 miden-zk-primitives = { path = "../../crates/miden-zk-primitives", features = ["std"] }
-miden-prover        = { workspace = true, features = ["std"] }
-miden-verifier      = { workspace = true, features = ["std"] }
-rand                = { workspace = true }
-serde_json          = { workspace = true }
+rand = { workspace = true, features = ["std", "std_rng"] }
