@@ -1,18 +1,61 @@
-//! Utility functions shared across primitives.
+//! Shared utilities and helper functions.
 
-use miden_core::Felt;
-
-/// Convert a `u64` to a `Felt` (panics if value exceeds the field modulus).
-pub fn u64_to_felt(v: u64) -> Felt {
-    Felt::new(v)
+/// Mix two `u64` values with a fast, non-cryptographic hash.
+///
+/// Useful for building larger hash functions from smaller components.
+///
+/// # Example
+/// ```
+/// use miden_zk_primitives::utils::mix;
+/// let h = mix(0xdeadbeef, 42);
+/// assert_ne!(h, 0);
+/// ```
+#[must_use]
+pub fn mix(a: u64, b: u64) -> u64 {
+    a.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(b.wrapping_mul(0x6c62_272e_07bb_0142))
 }
 
-/// Convert a `Felt` to a `u64`.
-pub fn felt_to_u64(f: Felt) -> u64 {
-    f.as_int()
+/// Pad `data` to the next power-of-two length by appending `pad_value`.
+///
+/// # Example
+/// ```
+/// use miden_zk_primitives::utils::pad_to_power_of_two;
+/// let padded = pad_to_power_of_two(&[1u64, 2, 3], 0);
+/// assert_eq!(padded.len(), 4);
+/// ```
+#[must_use]
+pub fn pad_to_power_of_two(data: &[u64], pad_value: u64) -> alloc::vec::Vec<u64> {
+    let n = data.len().next_power_of_two();
+    let mut v = data.to_vec();
+    v.resize(n, pad_value);
+    v
 }
 
-/// Format a `Word` as a short hex string (first 8 hex chars of first element).
-pub fn word_to_short_hex(word: &miden_core::Word) -> String {
-    format!("0x{:08x}", word[0].as_int() & 0xffff_ffff)
+// `alloc` is available via the standard prelude when `std` is enabled;
+// for `no_std` builds we need an explicit extern.
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mix_non_zero() {
+        assert_ne!(mix(1, 2), 0);
+    }
+
+    #[test]
+    fn pad_already_power_of_two() {
+        let v = pad_to_power_of_two(&[1u64, 2, 3, 4], 0);
+        assert_eq!(v.len(), 4);
+    }
+
+    #[test]
+    fn pad_grows() {
+        let v = pad_to_power_of_two(&[1u64, 2, 3], 0);
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[3], 0);
+    }
 }
