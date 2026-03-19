@@ -10,7 +10,7 @@
 //! | [`commitment`] | Pedersen-style hiding commitments |
 //! | [`merkle`]     | Binary Merkle tree with proof generation & verification |
 //! | [`nullifier`]  | Deterministic nullifier derivation |
-//! | [`range_proof`]| Range proofs over `u64` values |
+//! | [`range_proof`] | Range proofs over `u64` values |
 //! | [`set_membership`] | Set-membership proofs |
 //! | [`utils`]      | Shared helpers |
 //!
@@ -22,9 +22,10 @@
 //!
 //! ## Quick Start
 //!
-//! ```no_run
+//! ```
 //! # #[cfg(feature = "std")] {
-//! use miden_zk_primitives::{commitment::PedersenCommitment, merkle::MerkleTree};
+//! use miden_zk_primitives::commitment::PedersenCommitment;
+//! use miden_zk_primitives::merkle::MerkleTree;
 //! use rand::thread_rng;
 //!
 //! // Commit to a secret value
@@ -39,16 +40,11 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(
-    missing_docs,
-    rustdoc::broken_intra_doc_links,
-    unreachable_pub
-)]
-#![warn(
-    clippy::all,
-    clippy::pedantic,
-    clippy::nursery
-)]
+#![deny(missing_docs, rustdoc::broken_intra_doc_links, unreachable_pub)]
+#![warn(clippy::all)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
 pub mod commitment;
 pub mod error;
