@@ -67,7 +67,11 @@ impl MerkleTree {
         let mut siblings = Vec::new();
         let mut idx = index;
         for level in &self.levels[..self.levels.len() - 1] {
-            let sibling = if idx.is_multiple_of(2) { idx + 1 } else { idx - 1 };
+            let sibling = if idx.is_multiple_of(2) {
+                idx + 1
+            } else {
+                idx - 1
+            };
             siblings.push(level[sibling.min(level.len() - 1)]);
             idx /= 2;
         }
