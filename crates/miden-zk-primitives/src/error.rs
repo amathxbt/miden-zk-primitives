@@ -1,4 +1,4 @@
-//! Unified error type for miden-zk-primitives.
+//! Unified error type for `miden-zk-primitives`.
 
 use core::fmt;
 
@@ -8,8 +8,11 @@ use core::fmt;
 pub enum PrimitiveError {
     /// The input value falls outside the allowed range.
     OutOfRange {
+        /// The value that was out of range.
         value: u64,
+        /// The minimum allowed value.
         min: u64,
+        /// The maximum allowed value.
         max: u64,
     },
     /// The element is not a member of the provided set.
