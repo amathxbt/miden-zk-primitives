@@ -10,7 +10,7 @@ repository.workspace = true
 
 [features]
 default = ["std"]
-std = ["rand/std", "rand/std_rng"]
+std = ["rand?/std", "rand?/std_rng"]
 
 [dependencies]
 rand = { workspace = true, optional = true }
