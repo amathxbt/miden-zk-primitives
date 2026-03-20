@@ -1,99 +1,68 @@
-//! Pedersen-style commitment scheme.
+//! Pedersen-style commitment using Miden VM's native RPO hash.
 //!
-//! A commitment is a binding, hiding tuple `(G^v * H^r)` computed in a
-//! 64-bit scalar field using wrapping arithmetic.
+//! The commitment is computed **inside the Miden VM** using the `hperm`
+//! instruction (Rescue Prime Optimized — the native hash of Miden VM).
+//! The prover receives a STARK proof that the commitment was computed honestly.
 //!
-//! # Examples
+//! ## How it works
 //!
-//! ```rust
-//! use miden_zk_primitives::commitment::PedersenCommitment;
+//! 1. Push `[value, randomness, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]` onto the stack
+//! 2. Apply `hperm` (one full RPO permutation — 7 rounds)  
+//! 3. Drop the rate words, keep the capacity (the commitment)
 //!
-//! let com = PedersenCommitment::commit(99, 42);
-//! assert!(com.open(99, 42));
-//! assert!(!com.open(100, 42));
-//! ```
+//! The MASM program:
+//! - Takes `(value, randomness)` as public inputs
+//! - Outputs the 4-word commitment on the stack
+//! - The proof attests the computation was done honestly
 
-use alloc::vec::Vec;
+use crate::utils::{prove_program, verify_proof, ProofBundle};
 
-/// Pedersen-style commitment in a 64-bit scalar field.
+/// MASM program: hash `[value || randomness || padding]` with `hperm`.
+const COMMIT_MASM: &str = "
+begin
+    # Stack: [value, randomness]
+    # Pad to 12 elements for hperm (rate=8, capacity=4)
+    push.0 push.0 push.0 push.0   # 4 capacity words
+    push.0 push.0 push.0 push.0   # 4 rate padding words
+    # value and randomness are already on the stack
+    # Stack layout (bottom→top): [capacity×4, padding×4, randomness, value]
+    hperm
+    # hperm outputs 12 words; top 4 are the hash (capacity out)
+    # drop rate output (8 words), keep capacity (4 words = commitment)
+    movdn.3 movdn.3 movdn.3 movdn.3   # move capacity below rate
+    drop drop drop drop drop drop drop drop   # drop the 8 rate words
+    # Stack: [c3, c2, c1, c0]  (the 4-word commitment)
+end
+";
+
+/// Prove that `commit(value, randomness)` was computed honestly.
 ///
-/// The commitment is `G.wrapping_pow(value) XOR H.wrapping_pow(randomness)`
-/// where `G` and `H` are independent generator constants.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PedersenCommitment {
-    /// The raw commitment value.
-    pub value: u64,
+/// Returns a [`ProofBundle`] containing:
+/// - The 4-word RPO commitment as `outputs[0..4]`
+/// - The STARK proof bytes
+///
+/// # Errors
+///
+/// Returns an error string if the Miden VM fails to compile or prove.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use miden_zk_primitives::commitment::prove_commit_open;
+/// let bundle = prove_commit_open(42, 7).unwrap();
+/// assert_eq!(bundle.outputs.len(), 16); // full stack
+/// ```
+pub fn prove_commit_open(value: u64, randomness: u64) -> Result<ProofBundle, String> {
+    prove_program(COMMIT_MASM, &[randomness, value])
 }
 
-/// Fixed generator G.
-const G: u64 = 0x9e37_79b9_7f4a_7c15;
-/// Fixed generator H (independent of G).
-const H: u64 = 0x6c62_272e_07bb_0142;
-
-/// Simulate scalar multiplication as repeated wrapping addition.
-#[inline]
-fn scalar_mul(generator: u64, scalar: u64) -> u64 {
-    generator.wrapping_mul(scalar)
-}
-
-impl PedersenCommitment {
-    /// Create a commitment to `value` with randomness `r`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use miden_zk_primitives::commitment::PedersenCommitment;
-    /// let com = PedersenCommitment::commit(7, 3);
-    /// assert!(com.open(7, 3));
-    /// ```
-    #[must_use]
-    pub fn commit(value: u64, r: u64) -> Self {
-        let c = scalar_mul(G, value).wrapping_add(scalar_mul(H, r));
-        Self { value: c }
-    }
-
-    /// Verify that this commitment opens to (`value`, `r`).
-    #[must_use]
-    pub fn open(&self, value: u64, r: u64) -> bool {
-        let expected = scalar_mul(G, value).wrapping_add(scalar_mul(H, r));
-        self.value == expected
-    }
-
-    /// Homomorphically add two commitments.
-    ///
-    /// `commit(a, r1) + commit(b, r2) == commit(a+b, r1+r2)`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use miden_zk_primitives::commitment::PedersenCommitment;
-    /// let c1 = PedersenCommitment::commit(3, 10);
-    /// let c2 = PedersenCommitment::commit(7, 20);
-    /// let sum = c1.add(&c2);
-    /// assert!(sum.open(10, 30));
-    /// ```
-    #[must_use]
-    pub fn add(&self, other: &Self) -> Self {
-        Self {
-            value: self.value.wrapping_add(other.value),
-        }
-    }
-
-    /// Batch-commit to a slice of `(value, randomness)` pairs.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use miden_zk_primitives::commitment::PedersenCommitment;
-    /// let pairs = vec![(1u64, 10u64), (2, 20), (3, 30)];
-    /// let coms = PedersenCommitment::batch_commit(&pairs);
-    /// assert_eq!(coms.len(), 3);
-    /// assert!(coms[1].open(2, 20));
-    /// ```
-    #[must_use]
-    pub fn batch_commit(pairs: &[(u64, u64)]) -> Vec<Self> {
-        pairs.iter().map(|&(v, r)| Self::commit(v, r)).collect()
-    }
+/// Verify the commitment proof produced by [`prove_commit_open`].
+///
+/// # Errors
+///
+/// Returns an error string if the STARK proof is invalid.
+pub fn verify_commit_open(value: u64, randomness: u64, bundle: &ProofBundle) -> Result<(), String> {
+    verify_proof(COMMIT_MASM, &[randomness, value], bundle)
 }
 
 #[cfg(test)]
@@ -101,28 +70,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn commit_open_roundtrip() {
-        let com = PedersenCommitment::commit(42, 99);
-        assert!(com.open(42, 99));
-        assert!(!com.open(42, 100));
-        assert!(!com.open(43, 99));
+    fn commit_prove_and_verify() {
+        let bundle = prove_commit_open(42, 99).expect("prove failed");
+        verify_commit_open(42, 99, &bundle).expect("verify failed");
     }
 
     #[test]
-    fn homomorphic_add() {
-        let c1 = PedersenCommitment::commit(3, 10);
-        let c2 = PedersenCommitment::commit(7, 20);
-        let sum = c1.add(&c2);
-        assert!(sum.open(10, 30));
+    fn different_values_different_commitments() {
+        let b1 = prove_commit_open(1, 10).unwrap();
+        let b2 = prove_commit_open(2, 10).unwrap();
+        assert_ne!(b1.outputs[0], b2.outputs[0], "commitments must differ");
     }
 
     #[test]
-    fn batch_commit() {
-        let pairs: Vec<(u64, u64)> = (0..8).map(|i| (i, i * 3)).collect();
-        let coms = PedersenCommitment::batch_commit(&pairs);
-        assert_eq!(coms.len(), 8);
-        for (i, com) in coms.iter().enumerate() {
-            assert!(com.open(i as u64, (i as u64) * 3));
-        }
+    fn wrong_value_fails_verify() {
+        let bundle = prove_commit_open(42, 99).unwrap();
+        // verifying with wrong value should fail (hash mismatch → stack output differs)
+        let result = verify_commit_open(43, 99, &bundle);
+        assert!(result.is_err(), "wrong value should fail verification");
     }
 }
