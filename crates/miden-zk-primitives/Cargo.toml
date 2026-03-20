@@ -10,10 +10,8 @@ repository.workspace = true
 
 [features]
 default = ["std"]
-std = ["rand?/std", "rand?/std_rng"]
+std = []
 
 [dependencies]
-rand = { workspace = true, optional = true }
 
 [dev-dependencies]
-rand = { workspace = true, features = ["std", "std_rng"] }
