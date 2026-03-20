@@ -14,34 +14,28 @@ use crate::utils::{prove_program, verify_proof, ProofBundle};
 /// ```text
 /// [witness, element, acc_value]
 /// swap                  → [element, witness, acc_value]
-/// dup                   → [element, element, witness, acc_value]
-/// movdn.2               → [element, witness, element, acc_value]
-/// push.C / mul / …      → [factor, witness, element, acc_value]
-/// swap                  → [witness, factor, element, acc_value]
-/// mul                   → [witness*factor, element, acc_value]
-/// movup.2               → [acc_value, witness*factor, element]
-/// assert_eq             → [element]
-/// drop / push.1         → [1]
+/// push C / mul          → [element*C, witness, acc_value]
+/// push 1 / or           → [factor, witness, acc_value]
+/// swap                  → [witness, factor, acc_value]
+/// mul                   → [witness*factor, acc_value]
+/// assert_eq             → []   (or trap)
+/// push.1                → [1]
 /// ```
 const ACC_VERIFY_MASM: &str = "
 begin
     # Stack: [witness, element, acc_value]  (top = witness)
-    # --- duplicate element (index 1) without dup.1 ---
+    # Bring element to top to compute its factor
     swap                   # [element, witness, acc_value]
-    dup                    # [element, element, witness, acc_value]
-    movdn.2                # [element, witness, element, acc_value]
-    # --- compute factor = (element * PRIME) | 1 ---
+    # factor = (element * PRIME) | 1  (force-odd)
     push.1977382967        # prime-like constant (fits u32)
-    u32wrapping_mul        # [element*C, witness, element, acc_value]
+    u32wrapping_mul        # [element*C mod 2^32, witness, acc_value]
     push.1
-    u32or                  # force odd: [factor, witness, element, acc_value]
-    # --- compute witness * factor ---
-    swap                   # [witness, factor, element, acc_value]
-    u32wrapping_mul        # [witness*factor, element, acc_value]
-    # --- assert witness*factor == acc_value ---
-    movup.2                # [acc_value, witness*factor, element]
-    assert_eq              # witness*factor == acc_value?  pops both → [element]
-    drop                   # drop element
+    u32or                  # [factor, witness, acc_value]
+    # compute witness * factor
+    swap                   # [witness, factor, acc_value]
+    u32wrapping_mul        # [witness*factor, acc_value]
+    # assert equality
+    assert_eq              # traps if witness*factor != acc_value
     push.1
 end
 ";

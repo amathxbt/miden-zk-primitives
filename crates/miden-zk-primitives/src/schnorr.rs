@@ -36,7 +36,7 @@ const SCHNORR_VERIFY_MASM: &str = "
 begin
     # Stack: [s, e, R, pk]  (top = s)
     # Compute s*G  (push G then multiply — no dup needed)
-    push.119181899       # G constant  [G, s, e, R, pk]
+    push.123162187       # G = 0x07574e4b (matches Rust const G)  [G, s, e, R, pk]
     u32wrapping_mul      # [s*G, e, R, pk]
     # Bring e to top, then pk, multiply to get e*pk
     swap                 # [e, s*G, R, pk]

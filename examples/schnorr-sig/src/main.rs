@@ -1,7 +1,7 @@
 //! Schnorr signature demo — sign and verify inside Miden VM.
 
 use miden_zk_primitives::schnorr::{
-    challenge_hash, keypair, prove_schnorr_verify, sign, verify_schnorr_verify,
+    keypair, prove_schnorr_verify, sign, verify_schnorr_verify,
 };
 
 fn main() {

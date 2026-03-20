@@ -31,9 +31,9 @@ begin
     # Stack: [value, min, max]  (top = value)
     dup             # [value, value, min, max]
     movup.2         # [min, value, value, max]
-    u32gte          # [value>=min, value, max]  (second>=top)
+    u32lte          # [min<=value, value, max]  (min<=value → value>=min)
     assert          # abort if value < min; stack: [value, max]
-    u32lte          # [value<=max]  (top<=second)
+    u32lte          # [value<=max?]  (value<=max)
     assert          # abort if value > max
     push.1          # explicit success signal
 end
