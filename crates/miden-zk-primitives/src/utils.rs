@@ -1,6 +1,7 @@
 use miden_vm::{
-    prove, verify, Assembler, ExecutionOptions, ExecutionProof,
-    KernelLibrary, ProgramInfo, StackInputs, StackOutputs,
+    Assembler, ExecutionOptions, ExecutionProof,
+    KernelLibrary, ProgramInfo, ProvingOptions,
+    StackInputs, StackOutputs,
     utils::Serializable,
 };
 
@@ -20,16 +21,21 @@ pub fn prove_program(
         .map_err(|e| e.to_string())?;
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
         .map_err(|e| e.to_string())?;
-    let options = ExecutionOptions::new(Some(2_u32.pow(20)), 64, false, false)
+    let exec_options = ExecutionOptions::new(Some(2_u32.pow(20)), 64, false, false)
         .map_err(|e| e.to_string())?;
-    let proven = prove(&program, stack_inputs, options)
-        .map_err(|e| e.to_string())?;
-    let outputs: Vec<u64> = proven.stack_outputs()
+    let proving_options = ProvingOptions::default();
+    let (stack_outputs, proof) = miden_vm::prove(
+        &program,
+        stack_inputs,
+        exec_options,
+        proving_options,
+    ).map_err(|e| e.to_string())?;
+    let outputs: Vec<u64> = stack_outputs
         .stack()
         .iter()
-        .map(|v| v.as_int())
+        .map(|v: &miden_vm::math::Felt| v.as_int())
         .collect();
-    let proof_bytes = proven.into_proof().to_bytes();
+    let proof_bytes = proof.to_bytes();
     let hash_bytes: [u8; 32] = program.hash().as_bytes()
         .try_into()
         .unwrap_or([0u8; 32]);
@@ -56,7 +62,7 @@ pub fn verify_program(
     let program_info = ProgramInfo::new(program.hash(), KernelLibrary::default());
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
         .map_err(|e| e.to_string())?;
-    verify(program_info, stack_inputs, stack_outputs, proof)
+    miden_vm::verify(program_info, stack_inputs, stack_outputs, proof)
         .map_err(|e| e.to_string())?;
     Ok(())
 }

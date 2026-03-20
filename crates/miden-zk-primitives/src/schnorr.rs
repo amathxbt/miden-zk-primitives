@@ -10,7 +10,7 @@
 //! equation `s·G = R + e·pk`.  In this 32-bit group `G = 0x07574e4b`
 //! (a small prime that fits comfortably in `u32`).
 
-use crate::utils::{prove_program, verify_proof, ProofBundle};
+use crate::utils::{prove_program, verify_program, ProofBundle};
 
 /// Generator constant (32-bit safe for `u32` ops in Miden).
 const G: u64 = 0x0757_4e4b; // fits in u32
