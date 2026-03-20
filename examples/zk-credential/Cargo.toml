@@ -1,14 +1,12 @@
 [package]
 name = "zk-credential"
-description = "ZK credential: prove membership in a set without revealing which element"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
 [[bin]]
 name = "zk-credential"
 path = "src/main.rs"
-
 [dependencies]
-miden-zk-primitives = { path = "../../crates/miden-zk-primitives", features = ["std"] }
+miden-zk-primitives = { path = "../../crates/miden-zk-primitives" }
+miden-vm = { workspace = true }
