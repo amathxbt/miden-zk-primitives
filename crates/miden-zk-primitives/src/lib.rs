@@ -1,55 +1,52 @@
 //! # miden-zk-primitives
 //!
-//! A production-quality library of zero-knowledge primitives for the
-//! [Miden VM](https://github.com/0xMiden/miden-vm) ecosystem.
+//! Zero-knowledge cryptographic primitives for the [Miden VM](https://github.com/0xMiden/miden-vm).
 //!
-//! ## Modules
+//! This crate provides educational, `no_std`-compatible simulations of common ZK
+//! building-blocks. All group operations run in a 64-bit scalar field (wrapping
+//! arithmetic), so every proof verifies in pure Rust with **zero external
+//! dependencies beyond `rand`**.
 //!
-//! | Module | Description |
-//! |--------|-------------|
-//! | [`commitment`] | Pedersen-style hiding commitments |
-//! | [`merkle`]     | Binary Merkle tree with proof generation & verification |
-//! | [`nullifier`]  | Deterministic nullifier derivation |
-//! | [`range_proof`] | Range proofs over `u64` values |
-//! | [`set_membership`] | Set-membership proofs |
-//! | [`utils`]      | Shared helpers |
+//! ## Quick start
 //!
-//! ## Feature Flags
-//!
-//! | Flag  | Default | Description |
-//! |-------|---------|-------------|
-//! | `std` | yes     | Enables `std`-dependent code (randomness, I/O) |
-//!
-//! ## Quick Start
-//!
-//! ```
-//! # #[cfg(feature = "std")] {
-//! use miden_zk_primitives::commitment::PedersenCommitment;
-//! use miden_zk_primitives::merkle::MerkleTree;
-//! use rand::thread_rng;
+//! ```rust
+//! use miden_zk_primitives::{
+//!     commitment::PedersenCommitment,
+//!     merkle::MerkleTree,
+//! };
 //!
 //! // Commit to a secret value
-//! let (comm, randomness) = PedersenCommitment::commit(42, &mut thread_rng());
-//! assert!(comm.open(42, randomness));
+//! let com = PedersenCommitment::commit(42, 7);
+//! assert!(com.open(42, 7));
 //!
-//! // Build a Merkle tree and verify a proof
-//! let tree = MerkleTree::build(&[1, 2, 3, 4]);
-//! let proof = tree.proof(0);
-//! assert!(MerkleTree::verify(1, 0, &proof, tree.root()));
-//! # }
+//! // Build a Merkle tree and get a membership proof
+//! let leaves = vec![1u64, 2, 3, 4];
+//! let tree = MerkleTree::new(leaves);
+//! let proof = tree.prove(0).unwrap();
+//! assert!(tree.verify(0, 1, &proof));
 //! ```
+//!
+//! ## Feature flags
+//!
+//! | Flag | Default | Description |
+//! |------|---------|-------------|
+//! | `std` | ✓ | Enables `std`-backed `rand` and the standard `Error` trait |
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(missing_docs, rustdoc::broken_intra_doc_links, unreachable_pub)]
-#![warn(clippy::all)]
+#![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
-#[cfg(not(feature = "std"))]
 extern crate alloc;
 
+pub mod accumulator;
 pub mod commitment;
+pub mod elgamal;
 pub mod error;
 pub mod merkle;
 pub mod nullifier;
 pub mod range_proof;
+pub mod schnorr;
 pub mod set_membership;
+pub mod sigma;
 pub mod utils;
+pub mod vector_commitment;
