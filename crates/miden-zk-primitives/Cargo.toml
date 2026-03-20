@@ -1,17 +1,15 @@
 [package]
-name = "miden-zk-primitives"
-description = "Zero-knowledge cryptographic primitives for Miden VM"
-keywords = ["zero-knowledge", "miden", "zkp", "merkle", "commitment"]
-categories = ["cryptography", "no-std"]
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+name        = "miden-zk-primitives"
+description = "Production-ready ZK primitives built on the real Miden VM (STARK proofs)"
+keywords    = ["zero-knowledge", "miden", "stark", "zkp", "cryptography"]
+categories  = ["cryptography"]
+version.workspace   = true
+edition.workspace   = true
+license.workspace   = true
 repository.workspace = true
 
-[features]
-default = ["std"]
-std = []
-
 [dependencies]
+miden-vm = { workspace = true }
 
 [dev-dependencies]
+miden-vm = { workspace = true }
