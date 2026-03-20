@@ -12,9 +12,9 @@
 //! use miden_zk_primitives::groth16::{TrustedSetup, Groth16Proof};
 //!
 //! // Circuit: prove knowledge of x such that x² = 9
-//! // Witness: [1, 3, 9]   public inputs: [9]
+//! // Witness: [1, pub_input, private]  where pub_input = witness[1]
 //! let setup = TrustedSetup::new(3, 1, 0xdeadbeef);
-//! let proof = Groth16Proof::prove(&setup, &[1, 3, 9]).unwrap();
+//! let proof = Groth16Proof::prove(&setup, &[1, 9, 3]).unwrap();
 //! assert!(proof.verify(&setup, &[9]));
 //! ```
 
@@ -112,8 +112,8 @@ impl Groth16Proof {
     /// ```rust
     /// use miden_zk_primitives::groth16::{TrustedSetup, Groth16Proof};
     /// let setup = TrustedSetup::new(3, 1, 42);
-    /// let proof = Groth16Proof::prove(&setup, &[1, 9, 3]).unwrap();
-    /// assert!(proof.verify(&setup, &[9]));
+    /// let proof = Groth16Proof::prove(&setup, &[1, 7, 5]).unwrap();
+    /// assert!(proof.verify(&setup, &[7]));
     /// ```
     pub fn prove(setup: &TrustedSetup, witness: &[u64]) -> Result<Self, PrimitiveError> {
         if witness.len() != setup.num_vars {
