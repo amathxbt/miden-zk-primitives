@@ -1,4 +1,4 @@
-//! ZK credential: prove membership in an allowlist without revealing your identity.
+//! ZK credential: prove membership in an allowlist without revealing identity.
 
 use miden_zk_primitives::set_membership::SetMembershipProof;
 
@@ -14,13 +14,13 @@ fn main() {
     ];
 
     // Prover knows they are member #3 but reveals only the proof.
-    let my_id: u64 = 0xdead_beef_0000_0003;
-    let stranger_id: u64 = 0xdead_beef_0000_0099;
+    let my_index = 2usize; // 0-indexed
+    let stranger_index = 99usize;
 
     println!("Allowlist size: {}", allowlist.len());
     println!("Proving membership for a hidden identity...\n");
 
-    match SetMembershipProof::prove(my_id, &allowlist) {
+    match SetMembershipProof::prove(&allowlist, my_index) {
         Ok(proof) => {
             let valid = proof.verify(&allowlist);
             println!("  \u{2705} Proof generated. Valid: {valid}");
@@ -31,7 +31,7 @@ fn main() {
 
     println!();
     println!("Attempting proof for non-member...");
-    match SetMembershipProof::prove(stranger_id, &allowlist) {
+    match SetMembershipProof::prove(&allowlist, stranger_index) {
         Ok(_) => println!("  \u{26a0}\u{fe0f}  Unexpected success"),
         Err(e) => println!("  \u{2705} Correctly rejected: {e}"),
     }
