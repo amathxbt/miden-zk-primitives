@@ -1,0 +1,12 @@
+[package]
+name = "schnorr-sig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[[bin]]
+name = "schnorr-sig"
+path = "src/main.rs"
+[dependencies]
+miden-zk-primitives = { path = "../../crates/miden-zk-primitives" }
+miden-vm = { workspace = true }
