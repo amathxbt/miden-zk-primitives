@@ -36,7 +36,9 @@ pub fn verify_program(
     let assembler = Assembler::default();
     let program = assembler.compile(source)?;
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())?;
-    let stack_outputs = StackOutputs::try_from_ints(bundle.stack_outputs.iter().copied())?;
+    let stack_outputs = StackOutputs::try_from_ints(
+        bundle.stack_outputs.iter().copied()
+    )?;
     let program_info = ProgramInfo::new(program.hash(), KernelLibrary::default());
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)?;
     verify(program_info, stack_inputs, stack_outputs, proof)?;
