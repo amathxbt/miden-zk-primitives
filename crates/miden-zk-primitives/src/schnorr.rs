@@ -109,7 +109,7 @@ mod tests {
     #[test]
     fn schnorr_sign_and_prove() {
         let (pk, sk) = keypair(12345);
-        let msg_hash = 0xdeadc0de_u64 % (1u64 << 32);
+        let msg_hash = 0xdeadc0de_u64;
         let (r_point, e, s) = sign(sk, pk, 99999, msg_hash);
         let bundle = prove_schnorr_verify(pk, r_point, e, s).expect("prove failed");
         verify_schnorr_verify(pk, r_point, e, s, &bundle).expect("verify failed");

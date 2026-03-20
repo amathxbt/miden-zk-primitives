@@ -41,7 +41,7 @@ end
 /// * `index`  — leaf index
 /// * `root`   — 4 Goldilocks field elements forming the Merkle root
 /// * `_leaf`  — 4 field elements of the leaf value (used by advice provider in
-///              production; kept as parameter for API compatibility)
+///   production; kept as parameter for API compatibility)
 ///
 /// # Errors
 ///
