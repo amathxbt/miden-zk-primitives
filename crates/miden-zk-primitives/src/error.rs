@@ -1,33 +1,33 @@
-//! Unified error type for `miden-zk-primitives`.
+//! Error types shared across all ZK primitives.
 
+use alloc::string::String;
 use core::fmt;
 
-/// Errors that can occur when constructing or verifying ZK primitives.
+/// Unified error type for all primitive operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum PrimitiveError {
-    /// The input value falls outside the allowed range.
+    /// A value fell outside the permitted range.
     OutOfRange {
-        /// The value that was out of range.
+        /// The offending value.
         value: u64,
-        /// The minimum allowed value.
+        /// Minimum allowed value (inclusive).
         min: u64,
-        /// The maximum allowed value.
+        /// Maximum allowed value (inclusive).
         max: u64,
     },
-    /// The element is not a member of the provided set.
+    /// A value is not a member of the expected set.
     NotAMember,
-    /// A generic internal error with a human-readable message.
-    Internal(&'static str),
+    /// An internal invariant was violated.
+    Internal(String),
 }
 
 impl fmt::Display for PrimitiveError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::OutOfRange { value, min, max } => {
-                write!(f, "value {value} is outside range [{min}, {max}]")
+                write!(f, "value {value} is out of range [{min}, {max}]")
             }
-            Self::NotAMember => write!(f, "element is not a member of the set"),
+            Self::NotAMember => write!(f, "value is not a member of the set"),
             Self::Internal(msg) => write!(f, "internal error: {msg}"),
         }
     }
