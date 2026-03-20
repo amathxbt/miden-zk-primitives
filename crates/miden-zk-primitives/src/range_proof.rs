@@ -4,11 +4,11 @@ fn range_src(value: u64, lo: u64, hi: u64) -> String {
     format!("begin\n    push.{value}\n    push.{lo}\n    u32gte\n    assert\n    push.{value}\n    push.{hi}\n    u32lte\n    assert\nend")
 }
 
-pub fn prove_range(value: u64, lo: u64, hi: u64) -> Result<ProofBundle, Box<dyn std::error::Error>> {
+pub fn prove_range(value: u64, lo: u64, hi: u64) -> Result<ProofBundle, String> {
     prove_program(&range_src(value, lo, hi), &[])
 }
 
-pub fn verify_range(value: u64, lo: u64, hi: u64, bundle: &ProofBundle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn verify_range(value: u64, lo: u64, hi: u64, bundle: &ProofBundle) -> Result<(), String> {
     verify_program(&range_src(value, lo, hi), &[], bundle)
 }
 

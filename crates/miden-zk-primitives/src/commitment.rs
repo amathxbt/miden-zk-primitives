@@ -7,11 +7,11 @@ begin
 end
 ";
 
-pub fn prove_commit_open(value: u64, randomness: u64) -> Result<ProofBundle, Box<dyn std::error::Error>> {
+pub fn prove_commit_open(value: u64, randomness: u64) -> Result<ProofBundle, String> {
     prove_program(COMMITMENT_SRC, &[randomness, value])
 }
 
-pub fn verify_commit_open(value: u64, randomness: u64, bundle: &ProofBundle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn verify_commit_open(value: u64, randomness: u64, bundle: &ProofBundle) -> Result<(), String> {
     verify_program(COMMITMENT_SRC, &[randomness, value], bundle)
 }
 

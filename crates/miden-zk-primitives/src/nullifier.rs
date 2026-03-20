@@ -7,11 +7,11 @@ begin
 end
 ";
 
-pub fn prove_nullifier(secret_key: u64, note_index: u64) -> Result<ProofBundle, Box<dyn std::error::Error>> {
+pub fn prove_nullifier(secret_key: u64, note_index: u64) -> Result<ProofBundle, String> {
     prove_program(NULLIFIER_SRC, &[note_index, secret_key])
 }
 
-pub fn verify_nullifier(secret_key: u64, note_index: u64, bundle: &ProofBundle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn verify_nullifier(secret_key: u64, note_index: u64, bundle: &ProofBundle) -> Result<(), String> {
     verify_program(NULLIFIER_SRC, &[note_index, secret_key], bundle)
 }
 

@@ -13,11 +13,11 @@ pub fn compute_witness(elements: &[u64], target: u64) -> Option<u64> {
     Some(elements.iter().filter(|&&e| e != target).fold(1u64, |acc, &e| acc.wrapping_mul(e.wrapping_add(31337))))
 }
 
-pub fn prove_membership(accumulator: u64, element: u64, witness: u64) -> Result<ProofBundle, Box<dyn std::error::Error>> {
+pub fn prove_membership(accumulator: u64, element: u64, witness: u64) -> Result<ProofBundle, String> {
     prove_program(&acc_src(witness, element.wrapping_add(31337), accumulator), &[])
 }
 
-pub fn verify_membership(accumulator: u64, element: u64, witness: u64, bundle: &ProofBundle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn verify_membership(accumulator: u64, element: u64, witness: u64, bundle: &ProofBundle) -> Result<(), String> {
     verify_program(&acc_src(witness, element.wrapping_add(31337), accumulator), &[], bundle)
 }
 
