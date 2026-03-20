@@ -9,11 +9,10 @@
 
 ---
 
-## ✅ Is this built 100% with Miden VM?
 
-**Yes.** Every function in this library:
+Every function in this library:
 
-1. **Compiles real Miden Assembly (MASM)** programs using `miden_vm::Assembler`
+1. **Compiles  Miden Assembly (MASM)** programs using `miden_vm::Assembler`
 2. **Executes them through the real Miden VM processor**
 3. **Generates genuine STARK proofs** via `miden_vm::prove` (Winterfell backend)
 4. **Verifies proofs** with `miden_vm::verify` — no trusted setup, post-quantum secure
@@ -24,9 +23,8 @@ native Miden VM instructions (`hperm`, `mtree_verify`, `u32gte`, `u32lte`,
 
 ---
 
-## ✅ Is this real? Can developers build on top of it?
 
-**Yes.** This is production-quality code, not a demo:
+
 
 - **All CI checks pass** (Rustfmt, Clippy `-D warnings`, Tests, Docs, Build Examples)
 - **Real STARK proofs** — proof bytes are serialised, can be stored/transmitted/verified
