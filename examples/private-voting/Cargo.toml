@@ -1,14 +1,12 @@
 [package]
 name = "private-voting"
-description = "A privacy-preserving voting system built on Miden VM"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
 [[bin]]
 name = "private-voting"
 path = "src/main.rs"
-
 [dependencies]
-miden-zk-primitives = { path = "../../crates/miden-zk-primitives", features = ["std"] }
+miden-zk-primitives = { path = "../../crates/miden-zk-primitives" }
+miden-vm = { workspace = true }
