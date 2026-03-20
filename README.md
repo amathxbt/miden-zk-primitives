@@ -224,4 +224,4 @@ MIT — see [LICENSE](LICENSE)
 
 ## Acknowledgements
 
-Built on [Miden VM](https://github.com/0xMiden/miden-vm) by the [0xMiden team](https://github.com/0xMiden).
+Built on [Miden VM](https://github.com/0xMiden/miden-vm) 
