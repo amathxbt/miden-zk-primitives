@@ -15,9 +15,6 @@ license = "MIT"
 repository = "https://github.com/amathxbt/miden-zk-primitives"
 authors = ["amathxbt"]
 
-[workspace.dependencies]
-rand = { version = "0.8", default-features = false }
-
 [profile.release]
 lto = true
 codegen-units = 1
