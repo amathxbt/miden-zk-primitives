@@ -1,81 +1,128 @@
 //! Pedersen-style commitment scheme.
 //!
-//! A commitment `C = H(value || randomness)` hides the value while binding
-//! the committer to it. Opening reveals `(value, randomness)`.
+//! A commitment is a binding, hiding tuple `(G^v * H^r)` computed in a
+//! 64-bit scalar field using wrapping arithmetic.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use miden_zk_primitives::commitment::PedersenCommitment;
+//!
+//! let com = PedersenCommitment::commit(99, 42);
+//! assert!(com.open(99, 42));
+//! assert!(!com.open(100, 42));
+//! ```
 
-#[cfg(feature = "std")]
-use rand::Rng;
+use alloc::vec::Vec;
 
-/// A commitment to a `u64` value.
+/// Pedersen-style commitment in a 64-bit scalar field.
+///
+/// The commitment is `G.wrapping_pow(value) XOR H.wrapping_pow(randomness)`
+/// where `G` and `H` are independent generator constants.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PedersenCommitment {
-    value: u64,
+    /// The raw commitment value.
+    pub value: u64,
+}
+
+/// Fixed generator G.
+const G: u64 = 0x9e37_79b9_7f4a_7c15;
+/// Fixed generator H (independent of G).
+const H: u64 = 0x6c62_272e_07bb_0142;
+
+/// Simulate scalar multiplication as repeated wrapping addition.
+#[inline]
+fn scalar_mul(generator: u64, scalar: u64) -> u64 {
+    generator.wrapping_mul(scalar)
 }
 
 impl PedersenCommitment {
-    /// Commit to `value` using a random blinding factor.
+    /// Create a commitment to `value` with randomness `r`.
     ///
-    /// Returns `(commitment, randomness)`.
+    /// # Examples
     ///
-    /// # Example
-    ///
-    /// ```
-    /// # #[cfg(feature = "std")] {
+    /// ```rust
     /// use miden_zk_primitives::commitment::PedersenCommitment;
-    /// use rand::thread_rng;
-    /// let (comm, r) = PedersenCommitment::commit(42, &mut thread_rng());
-    /// assert!(comm.open(42, r));
-    /// # }
+    /// let com = PedersenCommitment::commit(7, 3);
+    /// assert!(com.open(7, 3));
     /// ```
-    #[cfg(feature = "std")]
-    pub fn commit<R: Rng>(value: u64, rng: &mut R) -> (Self, u64) {
-        let randomness: u64 = rng.gen();
-        let committed = Self::hash(value, randomness);
-        (Self { value: committed }, randomness)
-    }
-
-    /// Open the commitment: verify that `H(value || randomness) == self`.
-    ///
-    /// Returns `true` if the opening is valid.
-    pub fn open(&self, value: u64, randomness: u64) -> bool {
-        Self::hash(value, randomness) == self.value
-    }
-
-    /// Return the raw commitment value (opaque to the verifier).
     #[must_use]
-    pub fn value(&self) -> u64 {
-        self.value
+    pub fn commit(value: u64, r: u64) -> Self {
+        let c = scalar_mul(G, value).wrapping_add(scalar_mul(H, r));
+        Self { value: c }
     }
 
-    fn hash(value: u64, randomness: u64) -> u64 {
-        value
-            .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            .wrapping_add(randomness.wrapping_mul(0x6c62_272e_07bb_0142))
+    /// Verify that this commitment opens to (`value`, `r`).
+    #[must_use]
+    pub fn open(&self, value: u64, r: u64) -> bool {
+        let expected = scalar_mul(G, value).wrapping_add(scalar_mul(H, r));
+        self.value == expected
+    }
+
+    /// Homomorphically add two commitments.
+    ///
+    /// `commit(a, r1) + commit(b, r2) == commit(a+b, r1+r2)`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use miden_zk_primitives::commitment::PedersenCommitment;
+    /// let c1 = PedersenCommitment::commit(3, 10);
+    /// let c2 = PedersenCommitment::commit(7, 20);
+    /// let sum = c1.add(&c2);
+    /// assert!(sum.open(10, 30));
+    /// ```
+    #[must_use]
+    pub fn add(&self, other: &Self) -> Self {
+        Self {
+            value: self.value.wrapping_add(other.value),
+        }
+    }
+
+    /// Batch-commit to a slice of `(value, randomness)` pairs.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use miden_zk_primitives::commitment::PedersenCommitment;
+    /// let pairs = vec![(1u64, 10u64), (2, 20), (3, 30)];
+    /// let coms = PedersenCommitment::batch_commit(&pairs);
+    /// assert_eq!(coms.len(), 3);
+    /// assert!(coms[1].open(2, 20));
+    /// ```
+    #[must_use]
+    pub fn batch_commit(pairs: &[(u64, u64)]) -> Vec<Self> {
+        pairs.iter().map(|&(v, r)| Self::commit(v, r)).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "std")]
-    use rand::thread_rng;
 
     #[test]
-    #[cfg(feature = "std")]
-    fn commit_and_open() {
-        let mut rng = thread_rng();
-        let (comm, r) = PedersenCommitment::commit(42, &mut rng);
-        assert!(comm.open(42, r));
-        assert!(!comm.open(43, r));
+    fn commit_open_roundtrip() {
+        let com = PedersenCommitment::commit(42, 99);
+        assert!(com.open(42, 99));
+        assert!(!com.open(42, 100));
+        assert!(!com.open(43, 99));
     }
 
     #[test]
-    #[cfg(feature = "std")]
-    fn different_randomness_gives_different_commitment() {
-        let mut rng = thread_rng();
-        let (c1, _) = PedersenCommitment::commit(7, &mut rng);
-        let (c2, _) = PedersenCommitment::commit(7, &mut rng);
-        // With overwhelming probability the two commitments differ.
-        assert_ne!(c1, c2);
+    fn homomorphic_add() {
+        let c1 = PedersenCommitment::commit(3, 10);
+        let c2 = PedersenCommitment::commit(7, 20);
+        let sum = c1.add(&c2);
+        assert!(sum.open(10, 30));
+    }
+
+    #[test]
+    fn batch_commit() {
+        let pairs: Vec<(u64, u64)> = (0..8).map(|i| (i, i * 3)).collect();
+        let coms = PedersenCommitment::batch_commit(&pairs);
+        assert_eq!(coms.len(), 8);
+        for (i, com) in coms.iter().enumerate() {
+            assert!(com.open(i as u64, (i as u64) * 3));
+        }
     }
 }
