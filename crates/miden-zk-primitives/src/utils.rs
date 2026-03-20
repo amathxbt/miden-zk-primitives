@@ -2,7 +2,6 @@ use miden_vm::{
     Assembler, ExecutionOptions, ExecutionProof,
     KernelLibrary, ProgramInfo, ProvingOptions,
     StackInputs, StackOutputs,
-    utils::Serializable,
 };
 
 #[derive(Debug, Clone)]
@@ -18,22 +17,22 @@ pub fn prove_program(
 ) -> Result<ProofBundle, String> {
     let program = Assembler::default()
         .assemble_program(source)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e: miden_vm::assembly::AssemblyError| e.to_string())?;
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e}"))?;
     let exec_options = ExecutionOptions::new(Some(2_u32.pow(20)), 64, false, false)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e}"))?;
     let proving_options = ProvingOptions::default();
     let (stack_outputs, proof) = miden_vm::prove(
         &program,
         stack_inputs,
         exec_options,
         proving_options,
-    ).map_err(|e| e.to_string())?;
+    ).map_err(|e| format!("{e}"))?;
     let outputs: Vec<u64> = stack_outputs
-        .stack()
+        .stack_truncated(16)
         .iter()
-        .map(|v: &miden_vm::math::Felt| v.as_int())
+        .map(|v| v.as_int())
         .collect();
     let proof_bytes = proof.to_bytes();
     let hash_bytes: [u8; 32] = program.hash().as_bytes()
@@ -53,16 +52,16 @@ pub fn verify_program(
 ) -> Result<(), String> {
     let program = Assembler::default()
         .assemble_program(source)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e: miden_vm::assembly::AssemblyError| e.to_string())?;
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e}"))?;
     let stack_outputs = StackOutputs::try_from_ints(
         bundle.stack_outputs.iter().copied()
-    ).map_err(|e| e.to_string())?;
+    ).map_err(|e| format!("{e}"))?;
     let program_info = ProgramInfo::new(program.hash(), KernelLibrary::default());
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e}"))?;
     miden_vm::verify(program_info, stack_inputs, stack_outputs, proof)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e}"))?;
     Ok(())
 }

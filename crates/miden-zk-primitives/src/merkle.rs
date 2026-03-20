@@ -17,7 +17,7 @@
 //! (non-deterministic secret inputs to the VM), so they are NOT part of the
 //! public inputs but ARE verified by the STARK proof.
 
-use crate::utils::{prove_program, verify_proof, ProofBundle};
+use crate::utils::{prove_program, verify_program, ProofBundle};
 
 /// MASM: verify a Merkle membership proof.
 ///
@@ -67,7 +67,7 @@ pub fn verify_merkle_membership(
     bundle: &ProofBundle,
 ) -> Result<(), String> {
     let inputs = [root[0], root[1], root[2], root[3], index, depth];
-    verify_proof(MERKLE_VERIFY_MASM, &inputs, bundle)
+    verify_program(MERKLE_VERIFY_MASM, &inputs, bundle)
 }
 
 #[cfg(test)]
