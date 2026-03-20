@@ -72,7 +72,7 @@ println!("Commitment: {:?}", &bundle.outputs[0..4]);
 
 // Verifier: check the proof (no knowledge of value needed — just the proof)
 verify_commit_open(42, 7, &bundle)?;
-println!("✅ Commitment verified!");
+println!(" Commitment verified!");
 ```
 
 ### `range_proof` — Native u32 Range Check
@@ -86,7 +86,7 @@ use miden_zk_primitives::range_proof::{prove_range, verify_range};
 let bundle = prove_range(25, 18, 120)?;
 // Verifier: check the proof
 verify_range(25, 18, 120, &bundle)?;
-println!("✅ Age is in [18, 120] — STARK proof verified");
+println!(" Age is in [18, 120] — STARK proof verified");
 ```
 
 ### `nullifier` — Spend-Once Token
