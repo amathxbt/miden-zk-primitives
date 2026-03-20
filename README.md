@@ -38,10 +38,7 @@ miden-zk-primitives = { git = "https://github.com/amathxbt/miden-zk-primitives" 
 ```
 
 ---
-
-## ✅ Can the Miden team and other teams use it?
-
-**Yes.** The repository is public, well-documented, and CI-clean:
+ The repository is public, well-documented, and CI-clean:
 
 - **GitHub:** https://github.com/amathxbt/miden-zk-primitives
 - **CI:** All 5 jobs green on every push to `main`
@@ -100,7 +97,7 @@ let bundle = prove_commit_open(42, 7)?;
 println!("STARK proof: {} bytes", bundle.proof_bytes.len());
 
 verify_commit_open(42, 7, &bundle)?;
-println!("✅ Commitment verified!");
+println!(" Commitment verified!");
 ```
 
 ### `range_proof` — Native u32 Range Check
@@ -112,7 +109,7 @@ use miden_zk_primitives::range_proof::{prove_range, verify_range};
 
 let bundle = prove_range(25, 18, 120)?;   // prove age ∈ [18, 120]
 verify_range(25, 18, 120, &bundle)?;
-println!("✅ Age is in [18, 120] — STARK proof verified");
+println!(" Age is in [18, 120] — STARK proof verified");
 ```
 
 ### `nullifier` — Spend-Once Token
@@ -217,11 +214,6 @@ Your MASM program + Public inputs
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Join the Miden community:
-- [Discord](https://discord.gg/MtvzuHjZ)
-- [GitHub Discussions](https://github.com/0xMiden/miden-vm/discussions)
-
 ---
 
 ## License
