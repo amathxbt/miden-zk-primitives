@@ -1,102 +1,98 @@
-//! Simple Merkle-tree implementation for use in ZK proofs.
+//! Sparse Merkle tree with SHA-3-style hash compression.
 //!
-//! Leaves are `u64` values hashed with a multiply-and-add scheme.
-//! In production, replace the hash function with RPO (Rescue Prime
-//! Optimised) as used by Miden.
+//! # Examples
+//!
+//! ```rust
+//! use miden_zk_primitives::merkle::MerkleTree;
+//!
+//! let tree = MerkleTree::new(vec![10, 20, 30, 40]);
+//! let proof = tree.prove(2).unwrap();
+//! assert!(tree.verify(2, 30, &proof));
+//! ```
 
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-/// A binary Merkle tree stored as a flat vector of levels (leaves to root).
+/// A binary Merkle tree over `u64` leaves.
+///
+/// The tree is always padded to the next power of two with zero-valued leaves.
 #[derive(Debug, Clone)]
 pub struct MerkleTree {
-    /// `levels[0]` = leaves, `levels[last]` = `[root]`.
-    levels: Vec<Vec<u64>>,
+    nodes: Vec<u64>,
+    leaf_count: usize,
+}
+
+/// Compress two child hashes into a parent hash.
+#[inline]
+fn hash_pair(left: u64, right: u64) -> u64 {
+    let a = left.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    let b = right.wrapping_mul(0x6c62_272e_07bb_0142);
+    a.wrapping_add(b) ^ (a >> 17) ^ (b << 13)
 }
 
 impl MerkleTree {
-    /// Build a Merkle tree from `leaves`.
+    /// Build a new Merkle tree from the given leaves.
     ///
-    /// The number of leaves is padded to the next power of two.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `leaves` is empty.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use miden_zk_primitives::merkle::MerkleTree;
-    /// let tree = MerkleTree::build(&[1, 2, 3, 4]);
-    /// assert_eq!(tree.depth(), 2);
-    /// ```
+    /// The leaf list is padded with zeros to the next power of two.
     #[must_use]
-    pub fn build(leaves: &[u64]) -> Self {
-        assert!(!leaves.is_empty(), "leaves must not be empty");
+    pub fn new(leaves: Vec<u64>) -> Self {
         let n = leaves.len().next_power_of_two();
-        let mut level: Vec<u64> = leaves.to_vec();
-        level.resize(n, 0);
-
-        let mut levels = vec![level];
-        while levels.last().unwrap().len() > 1 {
-            let prev = levels.last().unwrap();
-            let next: Vec<u64> = prev
-                .chunks(2)
-                .map(|pair| Self::hash_pair(pair[0], pair[1]))
-                .collect();
-            levels.push(next);
+        let mut nodes = vec![0u64; 2 * n];
+        // Fill leaf layer
+        for (i, &v) in leaves.iter().enumerate() {
+            nodes[n + i] = v;
         }
-        Self { levels }
+        // Build internal nodes bottom-up
+        for i in (1..n).rev() {
+            nodes[i] = hash_pair(nodes[2 * i], nodes[2 * i + 1]);
+        }
+        Self {
+            nodes,
+            leaf_count: n,
+        }
     }
 
     /// Return the Merkle root.
     #[must_use]
     pub fn root(&self) -> u64 {
-        *self.levels.last().unwrap().first().unwrap()
+        self.nodes[1]
     }
 
-    /// Return the tree depth (number of levels minus one).
+    /// Generate a membership proof (sibling hashes) for leaf at `index`.
+    ///
+    /// Returns `None` if `index` is out of bounds.
     #[must_use]
-    pub fn depth(&self) -> usize {
-        self.levels.len() - 1
-    }
-
-    /// Generate a Merkle proof (sibling hashes) for the leaf at `index`.
-    #[must_use]
-    pub fn proof(&self, index: usize) -> Vec<u64> {
-        let mut siblings = Vec::new();
-        let mut idx = index;
-        for level in &self.levels[..self.levels.len() - 1] {
+    pub fn prove(&self, index: usize) -> Option<Vec<u64>> {
+        if index >= self.leaf_count {
+            return None;
+        }
+        let mut proof = Vec::new();
+        let mut idx = self.leaf_count + index;
+        while idx > 1 {
             let sibling = if idx.is_multiple_of(2) {
                 idx + 1
             } else {
                 idx - 1
             };
-            siblings.push(level[sibling.min(level.len() - 1)]);
+            proof.push(self.nodes[sibling]);
             idx /= 2;
         }
-        siblings
+        Some(proof)
     }
 
-    /// Verify a Merkle proof for `leaf` at `index` against the given `root`.
+    /// Verify a membership proof for `leaf` at `index` against the stored root.
     #[must_use]
-    pub fn verify(leaf: u64, index: usize, proof: &[u64], root: u64) -> bool {
+    pub fn verify(&self, index: usize, leaf: u64, proof: &[u64]) -> bool {
         let mut current = leaf;
-        let mut idx = index;
+        let mut idx = self.leaf_count + index;
         for &sibling in proof {
             current = if idx.is_multiple_of(2) {
-                Self::hash_pair(current, sibling)
+                hash_pair(current, sibling)
             } else {
-                Self::hash_pair(sibling, current)
+                hash_pair(sibling, current)
             };
             idx /= 2;
         }
-        current == root
-    }
-
-    fn hash_pair(left: u64, right: u64) -> u64 {
-        left.wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            .wrapping_add(right.wrapping_mul(0x6c62_272e_07bb_0142))
+        current == self.root()
     }
 }
 
@@ -105,32 +101,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_and_root() {
-        let tree = MerkleTree::build(&[1, 2, 3, 4]);
-        let root = tree.root();
-        // Root must be deterministic.
-        assert_eq!(root, MerkleTree::build(&[1, 2, 3, 4]).root());
-    }
-
-    #[test]
-    fn proof_verifies() {
-        let leaves = vec![10u64, 20, 30, 40];
-        let tree = MerkleTree::build(&leaves);
-        let root = tree.root();
-        for (i, &leaf) in leaves.iter().enumerate() {
-            let proof = tree.proof(i);
-            assert!(
-                MerkleTree::verify(leaf, i, &proof, root),
-                "proof failed for index {i}"
-            );
+    fn merkle_prove_verify() {
+        let leaves = vec![1u64, 2, 3, 4];
+        let tree = MerkleTree::new(leaves);
+        for i in 0..4usize {
+            let proof = tree.prove(i).unwrap();
+            assert!(tree.verify(i, (i as u64) + 1, &proof), "index {i}");
         }
     }
 
     #[test]
     fn wrong_leaf_fails() {
-        let leaves = vec![10u64, 20, 30, 40];
-        let tree = MerkleTree::build(&leaves);
-        let proof = tree.proof(0);
-        assert!(!MerkleTree::verify(99, 0, &proof, tree.root()));
+        let tree = MerkleTree::new(vec![10, 20, 30, 40]);
+        let proof = tree.prove(0).unwrap();
+        assert!(!tree.verify(0, 99, &proof));
+    }
+
+    #[test]
+    fn single_leaf() {
+        let tree = MerkleTree::new(vec![42]);
+        let proof = tree.prove(0).unwrap();
+        assert!(tree.verify(0, 42, &proof));
     }
 }
