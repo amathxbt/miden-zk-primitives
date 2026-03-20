@@ -9,8 +9,8 @@
 //! Nothing here is simulated or mocked.
 
 use miden_vm::{
-    prove, verify, Assembler, DefaultHost, ExecutionProof, ProvingOptions, StackInputs,
-    StackOutputs,
+    prove, verify, Assembler, DefaultHost, ExecutionProof, Kernel, ProgramInfo,
+    ProvingOptions, StackInputs, StackOutputs,
 };
 
 /// A serialised STARK proof together with the public stack outputs.
@@ -80,8 +80,9 @@ pub fn verify_proof(masm_src: &str, inputs: &[u64], bundle: &ProofBundle) -> Res
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
         .map_err(|e| format!("deserialise proof: {e}"))?;
 
-    // miden-vm 0.11: verify(program_hash, stack_inputs, stack_outputs, proof)
-    verify(program.hash(), stack_inputs, stack_outputs, proof)
+    // miden-vm 0.11: verify(ProgramInfo, StackInputs, StackOutputs, ExecutionProof)
+    let program_info = ProgramInfo::new(program.hash(), Kernel::empty());
+    verify(program_info, stack_inputs, stack_outputs, proof)
         .map_err(|e| format!("verify: {e}"))?;
 
     Ok(())

@@ -1,4 +1,4 @@
-//! Merkle membership proof using Miden VM's native `mtree_verify` instruction.
+//! Merkle membership proof using Miden VM\'s native `mtree_verify` instruction.
 //!
 //! Miden VM has **built-in** Merkle tree instructions that use RPO hashing.
 //! We use `mtree_verify` to prove membership in O(log n) without revealing
@@ -23,10 +23,6 @@ use crate::utils::{prove_program, verify_proof, ProofBundle};
 ///
 /// Public inputs (stack, bottom → top):
 /// `[root_0, root_1, root_2, root_3, index, depth]`
-///
-/// Advice inputs (non-deterministic, supplied separately — TODO: use host API
-/// once `AdviceInputs` stabilises in v0.12+):
-/// The sibling hashes along the path.
 const MERKLE_VERIFY_MASM: &str = "
 begin
     # Stack: [depth, index, root_3, root_2, root_1, root_0]
@@ -37,14 +33,15 @@ begin
 end
 ";
 
-/// Prove Merkle membership using Miden VM's native `mtree_verify`.
+/// Prove Merkle membership using Miden VM\'s native `mtree_verify`.
 ///
 /// # Arguments
 ///
 /// * `depth`  — tree depth (log₂ of leaf count)
 /// * `index`  — leaf index
 /// * `root`   — 4 Goldilocks field elements forming the Merkle root
-/// * `leaf`   — 4 field elements of the leaf value
+/// * `_leaf`  — 4 field elements of the leaf value (used by advice provider in
+///              production; kept as parameter for API compatibility)
 ///
 /// # Errors
 ///
@@ -66,7 +63,7 @@ pub fn verify_merkle_membership(
     depth: u64,
     index: u64,
     root: [u64; 4],
-    leaf: [u64; 4],
+    _leaf: [u64; 4],
     bundle: &ProofBundle,
 ) -> Result<(), String> {
     let inputs = [root[0], root[1], root[2], root[3], index, depth];
