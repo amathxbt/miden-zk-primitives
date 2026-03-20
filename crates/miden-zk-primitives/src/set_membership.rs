@@ -1,54 +1,78 @@
-//! Set-membership proof: prove an element belongs to a committed set
-//! without revealing which element it is.
+//! Set-membership proof: prove that a secret element belongs to a public set.
+//!
+//! Uses a Merkle tree over the set elements.  The prover commits to the
+//! element position and supplies the Merkle path.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use miden_zk_primitives::set_membership::SetMembershipProof;
+//!
+//! let set = vec![10u64, 20, 30, 40];
+//! let proof = SetMembershipProof::prove(&set, 1).unwrap();
+//! assert!(proof.verify(&set));
+//! ```
 
-use crate::error::PrimitiveError;
-
-#[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-/// A (simulated) set-membership proof.
+use crate::{error::PrimitiveError, merkle::MerkleTree};
+
+/// A Merkle-path membership proof.
 #[derive(Debug, Clone)]
 pub struct SetMembershipProof {
-    /// Merkle-root commitment of the set.
-    root: u64,
-    /// Index of the element (kept private in a real ZK proof).
-    index: usize,
+    /// The element being proved.
+    pub element: u64,
+    /// Index of the element in the set.
+    pub index: usize,
+    /// Sibling hashes along the Merkle path.
+    pub path: Vec<u64>,
+    /// Merkle root of the full set.
+    pub root: u64,
 }
 
 impl SetMembershipProof {
-    /// Generate a membership proof for `element` in `set`.
+    /// Prove that `set[index]` is a member of `set`.
     ///
-    /// Returns `Err(PrimitiveError::NotAMember)` if the element is absent.
+    /// # Errors
     ///
-    /// # Example
+    /// Returns [`PrimitiveError::NotAMember`] when `index >= set.len()`.
     ///
-    /// ```
+    /// # Examples
+    ///
+    /// ```rust
     /// use miden_zk_primitives::set_membership::SetMembershipProof;
-    /// let set = vec![10u64, 20, 30];
-    /// let proof = SetMembershipProof::prove(20, &set).unwrap();
+    /// let set = vec![1u64, 2, 3, 4];
+    /// let proof = SetMembershipProof::prove(&set, 2).unwrap();
     /// assert!(proof.verify(&set));
     /// ```
-    pub fn prove(element: u64, set: &[u64]) -> Result<Self, PrimitiveError> {
-        let index = set
-            .iter()
-            .position(|&x| x == element)
-            .ok_or(PrimitiveError::NotAMember)?;
-        let root = Self::merkle_root(set);
-        Ok(Self { root, index })
+    pub fn prove(set: &[u64], index: usize) -> Result<Self, PrimitiveError> {
+        if index >= set.len() {
+            return Err(PrimitiveError::NotAMember);
+        }
+        let tree = MerkleTree::new(set.to_vec());
+        let path = tree.prove(index).ok_or(PrimitiveError::NotAMember)?;
+        Ok(Self {
+            element: set[index],
+            index,
+            path,
+            root: tree.root(),
+        })
     }
 
-    /// Verify the proof against the same set.
+    /// Verify this proof against `set`.
     ///
-    /// Returns `true` if the proof is valid.
+    /// # Examples
+    ///
+    /// ```rust
+    /// use miden_zk_primitives::set_membership::SetMembershipProof;
+    /// let set = vec![100u64, 200, 300];
+    /// let proof = SetMembershipProof::prove(&set, 0).unwrap();
+    /// assert!(proof.verify(&set));
+    /// ```
     #[must_use]
     pub fn verify(&self, set: &[u64]) -> bool {
-        Self::merkle_root(set) == self.root && self.index < set.len()
-    }
-
-    fn merkle_root(set: &[u64]) -> u64 {
-        set.iter().fold(0u64, |acc, &x| {
-            acc.wrapping_add(x.wrapping_mul(0x9e37_79b9_7f4a_7c15))
-        })
+        let tree = MerkleTree::new(set.to_vec());
+        tree.root() == self.root && tree.verify(self.index, self.element, &self.path)
     }
 }
 
@@ -57,24 +81,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn member_proof_valid() {
-        let set = vec![1u64, 2, 3, 4, 5];
-        let proof = SetMembershipProof::prove(3, &set).unwrap();
-        assert!(proof.verify(&set));
+    fn prove_and_verify() {
+        let set = vec![10u64, 20, 30, 40];
+        for idx in 0..set.len() {
+            let proof = SetMembershipProof::prove(&set, idx).unwrap();
+            assert!(proof.verify(&set), "index {idx}");
+        }
     }
 
     #[test]
-    fn non_member_rejected() {
-        let set = vec![1u64, 2, 3];
-        let err = SetMembershipProof::prove(99, &set).unwrap_err();
-        assert_eq!(err, PrimitiveError::NotAMember);
+    fn wrong_element_fails() {
+        let set = vec![10u64, 20, 30, 40];
+        let mut proof = SetMembershipProof::prove(&set, 0).unwrap();
+        proof.element = 99;
+        assert!(!proof.verify(&set));
     }
 
     #[test]
-    fn tampered_set_invalidates_proof() {
+    fn out_of_bounds_errors() {
         let set = vec![1u64, 2, 3];
-        let proof = SetMembershipProof::prove(2, &set).unwrap();
-        let tampered = vec![1u64, 99, 3];
-        assert!(!proof.verify(&tampered));
+        assert!(SetMembershipProof::prove(&set, 5).is_err());
     }
 }
