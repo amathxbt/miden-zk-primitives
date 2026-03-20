@@ -9,10 +9,6 @@
 
 ---
 
-## ⚠️ Important: This is Real ZK
-
-This is **not** a simulation or demo with fake proofs.
-
 Every function in this crate:
 1. Compiles real **Miden Assembly (MASM)** programs
 2. Executes them through the **real Miden VM processor**
