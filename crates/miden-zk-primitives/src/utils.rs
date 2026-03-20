@@ -5,7 +5,7 @@
 //! - [`miden_vm::verify`] — verifies the proof without re-executing
 
 use miden_vm::{
-    prove, verify, Assembler, DefaultHost, ExecutionProof, Kernel, ProvingOptions, StackInputs,
+    prove, verify, Assembler, DefaultHost, ExecutionProof, ProvingOptions, StackInputs,
     StackOutputs,
 };
 
@@ -14,10 +14,8 @@ use miden_vm::{
 pub struct ProofBundle {
     /// Raw proof bytes — store, send, or verify later.
     pub proof_bytes: Vec<u8>,
-    /// The stack outputs produced by the program (top 16 elements).
+    /// The stack outputs produced by the program (top elements, as u64).
     pub outputs: Vec<u64>,
-    /// The program hash (needed for verification without re-compiling).
-    pub program_hash: [u8; 32],
 }
 
 /// Compile `masm_src`, run it with `inputs` on the stack, and return a real
@@ -39,12 +37,16 @@ pub fn prove_program(masm_src: &str, inputs: &[u64]) -> Result<ProofBundle, Stri
     let (outputs, proof) = prove(&program, stack_inputs, host, ProvingOptions::default())
         .map_err(|e| format!("prove: {e}"))?;
 
-    let program_hash: [u8; 32] = program.hash().into();
+    // Convert felt elements to u64
+    let out_vec: Vec<u64> = outputs
+        .stack_truncated(outputs.stack_truncated(16).len())
+        .iter()
+        .map(|f| f.as_int())
+        .collect();
 
     Ok(ProofBundle {
         proof_bytes: proof.to_bytes(),
-        outputs: outputs.stack().iter().map(|f| f.as_int()).collect(),
-        program_hash,
+        outputs: out_vec,
     })
 }
 
@@ -68,7 +70,8 @@ pub fn verify_proof(masm_src: &str, inputs: &[u64], bundle: &ProofBundle) -> Res
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
         .map_err(|e| format!("deserialise proof: {e}"))?;
 
-    verify(program.hash(), stack_inputs, &stack_outputs, proof)
+    // verify() in miden-vm 0.11 takes (program_hash, stack_inputs, stack_outputs, proof)
+    verify(program.hash(), stack_inputs, stack_outputs, proof)
         .map_err(|e| format!("verify: {e}"))?;
 
     Ok(())
