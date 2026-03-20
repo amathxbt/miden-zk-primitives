@@ -2,8 +2,8 @@ use miden_vm::{
     Assembler, ExecutionProof,
     ProgramInfo, ProvingOptions,
     StackInputs, StackOutputs,
+    DefaultHost,
 };
-use miden_vm::crypto::RpoDigest;
 
 #[derive(Debug, Clone)]
 pub struct ProofBundle {
@@ -21,10 +21,12 @@ pub fn prove_program(
         .map_err(|e| e.to_string())?;
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
         .map_err(|e| e.to_string())?;
+    let host = DefaultHost::default();
     let proving_options = ProvingOptions::default();
     let (stack_outputs, proof) = miden_vm::prove(
         &program,
         stack_inputs,
+        host,
         proving_options,
     ).map_err(|e| e.to_string())?;
     let outputs: Vec<u64> = stack_outputs
