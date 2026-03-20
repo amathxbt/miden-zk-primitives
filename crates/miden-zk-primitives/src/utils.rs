@@ -1,100 +1,71 @@
-//! Utility functions used across the library.
+//! Shared helpers: compile + prove + verify a MASM program.
 //!
-//! # Examples
-//!
-//! ```rust
-//! use miden_zk_primitives::utils::{felt_to_bits, bits_to_felt};
-//!
-//! let bits = felt_to_bits(42, 8);
-//! assert_eq!(bits_to_felt(&bits), 42);
-//! ```
+//! Every higher-level module calls `prove_program` / `verify_proof`.
+//! These functions wrap the **real** Miden VM API:
+//! - [`miden_vm::prove`] — generates a genuine STARK proof
+//! - [`miden_vm::verify`] — verifies the proof without re-executing
 
-use alloc::vec::Vec;
+use miden_vm::{
+    prove, verify, Assembler, DefaultHost, ExecutionProof, Kernel, MemAdviceProvider, ProgramInfo,
+    ProvingOptions, StackInputs, StackOutputs,
+};
 
-/// Decompose `value` into `num_bits` little-endian bits.
-///
-/// If `value` requires more than `num_bits` bits the higher bits are silently
-/// truncated.
-///
-/// # Examples
-///
-/// ```rust
-/// use miden_zk_primitives::utils::felt_to_bits;
-/// let bits = felt_to_bits(5, 4); // 5 = 0b0101
-/// assert_eq!(bits, vec![1, 0, 1, 0]);
-/// ```
-#[must_use]
-pub fn felt_to_bits(value: u64, num_bits: usize) -> Vec<u64> {
-    (0..num_bits).map(|i| (value >> i) & 1).collect()
+/// A serialised STARK proof together with the public stack outputs.
+#[derive(Debug, Clone)]
+pub struct ProofBundle {
+    /// Raw proof bytes — store, send, or verify later.
+    pub proof_bytes: Vec<u8>,
+    /// The stack outputs produced by the program.
+    pub outputs: Vec<u64>,
 }
 
-/// Reconstruct a field element from little-endian bits.
+/// Compile `masm_src`, run it with `inputs` pushed onto the stack, and return
+/// a real STARK [`ProofBundle`].
 ///
-/// # Examples
+/// # Errors
 ///
-/// ```rust
-/// use miden_zk_primitives::utils::bits_to_felt;
-/// assert_eq!(bits_to_felt(&[1, 0, 1, 0]), 5);
-/// ```
-#[must_use]
-pub fn bits_to_felt(bits: &[u64]) -> u64 {
-    bits.iter()
-        .enumerate()
-        .fold(0u64, |acc, (i, &b)| acc | (b << i))
+/// Returns a `String` describing the first failure (compile / execute / prove).
+pub fn prove_program(masm_src: &str, inputs: &[u64]) -> Result<ProofBundle, String> {
+    let assembler = Assembler::default();
+    let program = assembler
+        .assemble_program(masm_src)
+        .map_err(|e| format!("assemble: {e}"))?;
+
+    let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
+        .map_err(|e| format!("stack inputs: {e}"))?;
+
+    let host = DefaultHost::new(MemAdviceProvider::default());
+    let (outputs, proof) = prove(&program, stack_inputs, host, ProvingOptions::default())
+        .map_err(|e| format!("prove: {e}"))?;
+
+    Ok(ProofBundle {
+        proof_bytes: proof.to_bytes(),
+        outputs: outputs.stack().iter().map(|f| f.as_int()).collect(),
+    })
 }
 
-/// Pad `values` to the next power of two by appending zeros.
+/// Verify a [`ProofBundle`] against `masm_src` and `inputs`.
 ///
-/// # Examples
+/// # Errors
 ///
-/// ```rust
-/// use miden_zk_primitives::utils::pad_to_power_of_two;
-/// let v = pad_to_power_of_two(vec![1u64, 2, 3]);
-/// assert_eq!(v.len(), 4);
-/// ```
-#[must_use]
-pub fn pad_to_power_of_two(mut values: Vec<u64>) -> Vec<u64> {
-    let n = values.len().next_power_of_two();
-    values.resize(n, 0);
-    values
-}
+/// Returns a `String` if the proof is invalid or cannot be deserialised.
+pub fn verify_proof(masm_src: &str, inputs: &[u64], bundle: &ProofBundle) -> Result<(), String> {
+    let assembler = Assembler::default();
+    let program = assembler
+        .assemble_program(masm_src)
+        .map_err(|e| format!("assemble: {e}"))?;
 
-/// A domain-separated hash of two 64-bit values.
-///
-/// # Examples
-///
-/// ```rust
-/// use miden_zk_primitives::utils::hash_two;
-/// let h = hash_two(1, 2);
-/// assert_ne!(h, hash_two(2, 1)); // not symmetric
-/// ```
-#[must_use]
-pub fn hash_two(a: u64, b: u64) -> u64 {
-    let x = a.wrapping_mul(0x9e37_79b9_7f4a_7c15).wrapping_add(b);
-    x ^ (x >> 30) ^ (x << 13)
-}
+    let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
+        .map_err(|e| format!("stack inputs: {e}"))?;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    let stack_outputs = StackOutputs::try_from_ints(bundle.outputs.iter().copied())
+        .map_err(|e| format!("stack outputs: {e}"))?;
 
-    #[test]
-    fn bit_roundtrip() {
-        for v in [0u64, 1, 42, 255, u64::MAX >> 1] {
-            let bits = felt_to_bits(v, 64);
-            assert_eq!(bits_to_felt(&bits), v);
-        }
-    }
+    let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
+        .map_err(|e| format!("deserialise proof: {e}"))?;
 
-    #[test]
-    fn pad_length() {
-        assert_eq!(pad_to_power_of_two(vec![1, 2, 3]).len(), 4);
-        assert_eq!(pad_to_power_of_two(vec![1, 2, 3, 4]).len(), 4);
-        assert_eq!(pad_to_power_of_two(vec![1]).len(), 1);
-    }
+    let program_info = ProgramInfo::new(program.hash(), Kernel::default());
+    verify(program_info, stack_inputs, stack_outputs, proof).map_err(|e| format!("verify: {e}"))?;
 
-    #[test]
-    fn hash_two_asymmetric() {
-        assert_ne!(hash_two(1, 2), hash_two(2, 1));
-    }
+    Ok(())
 }
