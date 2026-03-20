@@ -1,122 +1,74 @@
-//! Cryptographic accumulator over a 64-bit scalar group.
+//! Cryptographic accumulator inside Miden VM.
 //!
-//! Supports membership witnesses: each element `e` contributes factor
-//! `hash(e, seed)` to the running product (wrapping multiplication).
-//! A witness for element `e` is the product of all *other* factors.
-//!
-//! # Examples
-//!
-//! ```rust
-//! use miden_zk_primitives::accumulator::Accumulator;
-//!
-//! let mut acc = Accumulator::new(0xbeef);
-//! acc.add(10);
-//! acc.add(20);
-//! acc.add(30);
-//! let witness = acc.witness(10).unwrap();
-//! assert!(acc.verify_membership(10, witness));
-//! ```
+//! Proves that an element is a member of a committed accumulator value.
+//! The accumulator is a running product of element factors computed with
+//! Miden VM's `u32wrapping_mul`.
 
-use alloc::vec::Vec;
+use crate::utils::{prove_program, verify_proof, ProofBundle};
 
-/// A multiplicative accumulator.
-#[derive(Debug, Clone)]
-pub struct Accumulator {
-    /// Seed used to derive element factors.
-    seed: u64,
-    elements: Vec<u64>,
+/// MASM: verify `witness * factor(element) == accumulator_value`.
+/// Public inputs: `[acc_value, element, witness]`
+const ACC_VERIFY_MASM: &str = "
+begin
+    # Stack: [witness, element, acc_value]
+    # Compute factor = (element * PRIME) | 1  so it's always odd
+    dup.1                  # [element, witness, element, acc_value]
+    push.1977382967        # prime-like constant (fits u32)
+    u32wrapping_mul        # [element*C, witness, element, acc_value]
+    push.1
+    u32or                  # force odd: [factor, witness, element, acc_value]
+    movup.1                # [witness, factor, element, acc_value]
+    u32wrapping_mul        # [witness*factor, element, acc_value]
+    movup.2                # [acc_value, witness*factor, element]
+    assert_eq              # witness*factor == acc_value?
+    drop                   # drop element
+    push.1
+end
+";
+
+/// Prove that `witness * factor(element) == acc_value`.
+///
+/// # Errors
+///
+/// Returns an error if the equation fails inside the VM.
+pub fn prove_membership(acc_value: u64, element: u64, witness: u64) -> Result<ProofBundle, String> {
+    prove_program(ACC_VERIFY_MASM, &[acc_value, element, witness])
 }
 
-/// Derive a prime-like factor for `element` under `seed`.
-#[inline]
-fn element_factor(seed: u64, element: u64) -> u64 {
-    let x = element
-        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-        .wrapping_add(seed);
-    // Ensure odd (never zero) so it is invertible mod 2^64.
-    (x ^ (x >> 23)) | 1
+/// Verify an accumulator membership proof.
+pub fn verify_membership(
+    acc_value: u64,
+    element: u64,
+    witness: u64,
+    bundle: &ProofBundle,
+) -> Result<(), String> {
+    verify_proof(ACC_VERIFY_MASM, &[acc_value, element, witness], bundle)
 }
 
-impl Accumulator {
-    /// Create an empty accumulator with the given `seed`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use miden_zk_primitives::accumulator::Accumulator;
-    /// let acc = Accumulator::new(1);
-    /// assert_eq!(acc.value(), 1);
-    /// ```
-    #[must_use]
-    pub fn new(seed: u64) -> Self {
-        Self {
-            seed,
-            elements: Vec::new(),
-        }
-    }
+/// Compute the factor for an element.
+pub fn element_factor(element: u64) -> u64 {
+    ((element as u128 * 1_977_382_967u128) as u64 % (1u64 << 32)) | 1
+}
 
-    /// The current accumulator value (product of all element factors).
-    #[must_use]
-    pub fn value(&self) -> u64 {
-        self.elements.iter().fold(1u64, |acc, &e| {
-            acc.wrapping_mul(element_factor(self.seed, e))
-        })
-    }
+/// Compute an accumulator value from a list of elements.
+pub fn build_accumulator(elements: &[u64]) -> u64 {
+    elements.iter().fold(1u64, |acc, &e| {
+        (acc as u128 * element_factor(e) as u128) as u64 % (1u64 << 32)
+    })
+}
 
-    /// Add `element` to the accumulator.
-    pub fn add(&mut self, element: u64) {
-        self.elements.push(element);
+/// Compute the witness for `element` (product of all other factors).
+pub fn compute_witness(elements: &[u64], element: u64) -> Option<u64> {
+    if !elements.contains(&element) {
+        return None;
     }
-
-    /// Remove `element` from the accumulator (first occurrence).
-    ///
-    /// Returns `false` if the element was not found.
-    pub fn remove(&mut self, element: u64) -> bool {
-        if let Some(pos) = self.elements.iter().position(|&e| e == element) {
-            self.elements.remove(pos);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Generate a membership witness for `element`.
-    ///
-    /// Returns `None` if `element` is not in the accumulator.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use miden_zk_primitives::accumulator::Accumulator;
-    /// let mut acc = Accumulator::new(1);
-    /// acc.add(5);
-    /// acc.add(6);
-    /// let w = acc.witness(5).unwrap();
-    /// assert!(acc.verify_membership(5, w));
-    /// ```
-    #[must_use]
-    pub fn witness(&self, element: u64) -> Option<u64> {
-        if !self.elements.contains(&element) {
-            return None;
-        }
-        let witness = self
-            .elements
-            .iter()
-            .filter(|&&e| e != element)
-            .fold(1u64, |acc, &e| {
-                acc.wrapping_mul(element_factor(self.seed, e))
-            });
-        Some(witness)
-    }
-
-    /// Verify a membership witness.
-    ///
-    /// Checks `witness * factor(element) == accumulator_value`.
-    #[must_use]
-    pub fn verify_membership(&self, element: u64, witness: u64) -> bool {
-        let factor = element_factor(self.seed, element);
-        witness.wrapping_mul(factor) == self.value()
-    }
+    let w = elements
+        .iter()
+        .filter(|&&e| e != element)
+        .fold(1u64, |acc, &e| {
+            (acc as u128 * element_factor(e) as u128) as u64 % (1u64 << 32)
+        });
+    Some(w)
 }
 
 #[cfg(test)]
@@ -124,45 +76,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accumulate_and_witness() {
-        let mut acc = Accumulator::new(0xbeef);
-        for e in [10u64, 20, 30, 40, 50] {
-            acc.add(e);
-        }
-        for &e in &[10u64, 20, 30, 40, 50] {
-            let w = acc.witness(e).unwrap();
-            assert!(acc.verify_membership(e, w), "element {e}");
-        }
+    fn accumulator_prove_and_verify() {
+        let elements = vec![10u64, 20, 30];
+        let acc = build_accumulator(&elements);
+        let witness = compute_witness(&elements, 10).unwrap();
+        let bundle = prove_membership(acc, 10, witness).expect("prove failed");
+        verify_membership(acc, 10, witness, &bundle).expect("verify failed");
     }
 
     #[test]
-    fn remove_and_verify() {
-        let mut acc = Accumulator::new(1);
-        acc.add(1);
-        acc.add(2);
-        acc.add(3);
-        assert!(acc.remove(2));
-        // Witness for 2 should now be None
-        assert!(acc.witness(2).is_none());
-        // Witnesses for remaining elements still valid
-        for &e in &[1u64, 3] {
-            let w = acc.witness(e).unwrap();
-            assert!(acc.verify_membership(e, w));
-        }
+    fn non_member_witness_fails() {
+        let elements = vec![1u64, 2, 3];
+        assert!(compute_witness(&elements, 99).is_none());
     }
 
     #[test]
-    fn nonmember_witness_is_none() {
-        let acc = Accumulator::new(99);
-        assert!(acc.witness(42).is_none());
-    }
-
-    #[test]
-    fn tampered_witness_fails() {
-        let mut acc = Accumulator::new(7);
-        acc.add(5);
-        acc.add(6);
-        let w = acc.witness(5).unwrap();
-        assert!(!acc.verify_membership(5, w.wrapping_add(1)));
+    fn tampered_witness_fails_prove() {
+        let elements = vec![5u64, 6, 7];
+        let acc = build_accumulator(&elements);
+        let witness = compute_witness(&elements, 5).unwrap();
+        // Wrong witness → VM assert_eq fails → no proof generated
+        assert!(prove_membership(acc, 5, witness + 1).is_err());
     }
 }
