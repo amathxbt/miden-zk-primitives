@@ -1,14 +1,12 @@
 [package]
 name = "age-verification"
-description = "ZK age-gate: prove you are over 18 without revealing your exact age"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
 [[bin]]
 name = "age-verification"
 path = "src/main.rs"
-
 [dependencies]
-miden-zk-primitives = { path = "../../crates/miden-zk-primitives", features = ["std"] }
+miden-zk-primitives = { path = "../../crates/miden-zk-primitives" }
+miden-vm = { workspace = true }
