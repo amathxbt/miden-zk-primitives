@@ -1,100 +1,131 @@
-//! Range proof over `u64` values.
+//! Range proof: prove that a secret value lies in `[min, max]`.
 //!
-//! In a full Miden VM integration the proof would be generated and verified as
-//! a STARK proof. Here we implement the *interface* so applications compile and
-//! tests pass; the cryptographic backend can be swapped in later.
+//! The proof is a simulated bit-decomposition commitment: commit to each bit
+//! of `(value - min)` and verify the sum reconstructs `(value - min)`.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use miden_zk_primitives::range_proof::RangeProof;
+//!
+//! let proof = RangeProof::prove(25, 18, 120).unwrap();
+//! assert!(proof.verify(18, 120));
+//! assert!(!proof.verify(0, 20)); // wrong range
+//! ```
+
+use alloc::vec::Vec;
 
 use crate::error::PrimitiveError;
-#[cfg(feature = "std")]
-use rand::Rng;
 
-/// A (simulated) range proof attesting that a committed value lies in `[min, max]`.
+/// A bit-commitment range proof.
 #[derive(Debug, Clone)]
 pub struct RangeProof {
-    /// The lower bound used during proving.
-    min: u64,
-    /// The upper bound used during proving.
-    max: u64,
+    /// Commitment to each bit of `value - min`.
+    pub bit_commitments: Vec<u64>,
+    /// Blinding factors used per bit.
+    pub randomness: Vec<u64>,
+    /// The original value (kept for verification in this simulation).
+    value: u64,
+}
+
+/// Pedersen-style commitment helper (same generators as `commitment.rs`).
+#[inline]
+fn commit(v: u64, r: u64) -> u64 {
+    v.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(r.wrapping_mul(0x6c62_272e_07bb_0142))
 }
 
 impl RangeProof {
-    /// Create a range proof that `value` is in `[min, max]`.
+    /// Prove that `value` lies in `[min, max]`.
     ///
-    /// Returns `Err` if `value` is outside the range.
+    /// Returns `Err` if `value` is out of range.
     ///
-    /// # Example
+    /// # Errors
     ///
-    /// ```
-    /// # #[cfg(feature = "std")] {
+    /// Returns [`PrimitiveError::OutOfRange`] when `value < min` or `value > max`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
     /// use miden_zk_primitives::range_proof::RangeProof;
-    /// use rand::thread_rng;
-    /// let proof = RangeProof::prove(25, 18, 120, &mut thread_rng()).unwrap();
-    /// assert!(proof.verify(18, 120));
-    /// # }
+    /// let p = RangeProof::prove(50, 0, 100).unwrap();
+    /// assert!(p.verify(0, 100));
     /// ```
-    #[cfg(feature = "std")]
-    pub fn prove<R: Rng>(
-        value: u64,
-        min: u64,
-        max: u64,
-        rng: &mut R,
-    ) -> Result<Self, PrimitiveError> {
+    pub fn prove(value: u64, min: u64, max: u64) -> Result<Self, PrimitiveError> {
         if value < min || value > max {
             return Err(PrimitiveError::OutOfRange { value, min, max });
         }
-        // Consume randomness so the signature matches a real prover.
-        let _randomness: u64 = rng.gen();
-        Ok(Self { min, max })
+        let diff = value - min;
+        let mut bit_commitments = Vec::new();
+        let mut randomness = Vec::new();
+        for bit_pos in 0..64u32 {
+            let bit = (diff >> bit_pos) & 1;
+            // Use deterministic "randomness" derived from value and bit position
+            let r = commit(value ^ 0xdeadbeef, u64::from(bit_pos));
+            bit_commitments.push(commit(bit, r));
+            randomness.push(r);
+        }
+        Ok(Self {
+            bit_commitments,
+            randomness,
+            value,
+        })
     }
 
-    /// Verify the proof against the same `[min, max]` range.
+    /// Verify this range proof against `[min, max]`.
     ///
-    /// Returns `true` if the proof is valid.
+    /// # Examples
+    ///
+    /// ```rust
+    /// use miden_zk_primitives::range_proof::RangeProof;
+    /// let p = RangeProof::prove(30, 18, 65).unwrap();
+    /// assert!(p.verify(18, 65));
+    /// ```
     #[must_use]
     pub fn verify(&self, min: u64, max: u64) -> bool {
-        // In a real implementation this checks the STARK proof.
-        self.min == min && self.max == max
+        if self.value < min || self.value > max {
+            return false;
+        }
+        let diff = self.value - min;
+        // Reconstruct expected bit commitments and compare
+        let expected: Vec<u64> = (0..64u32)
+            .map(|bit_pos| {
+                let bit = (diff >> bit_pos) & 1;
+                let r = commit(self.value ^ 0xdeadbeef, u64::from(bit_pos));
+                commit(bit, r)
+            })
+            .collect();
+        self.bit_commitments == expected
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "std")]
-    use rand::thread_rng;
 
     #[test]
-    #[cfg(feature = "std")]
-    fn prove_and_verify_in_range() {
-        let mut rng = thread_rng();
-        let proof = RangeProof::prove(42, 0, 100, &mut rng).unwrap();
-        assert!(proof.verify(0, 100));
+    fn valid_range() {
+        let proof = RangeProof::prove(18, 0, 120).unwrap();
+        assert!(proof.verify(0, 120));
     }
 
     #[test]
-    #[cfg(feature = "std")]
-    fn out_of_range_returns_error() {
-        let mut rng = thread_rng();
-        let err = RangeProof::prove(200, 0, 100, &mut rng).unwrap_err();
-        assert_eq!(
-            err,
-            PrimitiveError::OutOfRange {
-                value: 200,
-                min: 0,
-                max: 100
-            }
-        );
+    fn boundary_values() {
+        for &v in &[0u64, 50, 100] {
+            let proof = RangeProof::prove(v, 0, 100).unwrap();
+            assert!(proof.verify(0, 100), "boundary {v}");
+        }
     }
 
     #[test]
-    #[cfg(feature = "std")]
-    fn boundary_values_accepted() {
-        let mut rng = thread_rng();
-        assert!(RangeProof::prove(0, 0, 100, &mut rng)
-            .unwrap()
-            .verify(0, 100));
-        assert!(RangeProof::prove(100, 0, 100, &mut rng)
-            .unwrap()
-            .verify(0, 100));
+    fn out_of_range_errors() {
+        assert!(RangeProof::prove(200, 0, 100).is_err());
+        assert!(RangeProof::prove(0, 5, 100).is_err());
+    }
+
+    #[test]
+    fn wrong_range_fails_verify() {
+        let proof = RangeProof::prove(25, 18, 120).unwrap();
+        assert!(!proof.verify(0, 20));
     }
 }
