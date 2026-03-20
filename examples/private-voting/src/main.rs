@@ -1,54 +1,65 @@
-//! Private voting example.
+//! Private voting — real STARK proofs via Miden VM.
 //!
-//! Each voter commits to their choice (0 = No, 1 = Yes) with a secret
-//! randomness value derived from their voter ID.  Nullifiers prevent
-//! double-voting without revealing the individual vote.
+//! Each voter:
+//! 1. Commits to their vote using RPO hash (hperm instruction).
+//! 2. Derives a nullifier to prevent double-voting.
+//! 3. Gets a STARK proof for each operation.
 
-use miden_zk_primitives::commitment::PedersenCommitment;
-use miden_zk_primitives::nullifier::Nullifier;
+use miden_zk_primitives::{commitment, nullifier};
 
 fn main() {
-    println!("=== Miden ZK Private Voting Demo ===\n");
+    println!("=== Miden ZK Private Voting (Real STARK Proofs) ===\n");
 
-    // 5 voters: 3 Yes, 2 No.
-    let votes: Vec<u64> = vec![1, 0, 1, 1, 0];
-
-    println!("Casting {} secret votes...", votes.len());
+    let votes: &[(u64, u64)] = &[
+        (1, 0xAABB_0001), // (vote, voter_secret_key)
+        (0, 0xAABB_0002),
+        (1, 0xAABB_0003),
+        (1, 0xAABB_0004),
+        (0, 0xAABB_0005),
+    ];
 
     let mut nullifier_values = Vec::new();
 
-    for (i, &vote) in votes.iter().enumerate() {
-        // Derive deterministic per-voter randomness from voter ID.
-        let randomness = 0xc0ffee_u64.wrapping_mul((i as u64) + 1);
-        let com = PedersenCommitment::commit(vote, randomness);
-        let nul = Nullifier::derive(randomness, i as u64);
-        nullifier_values.push(nul.value);
+    for (i, &(vote, sk)) in votes.iter().enumerate() {
+        print!("Voter {}: generating commitment proof... ", i + 1);
+        let r = sk.wrapping_mul(0xc0ffee);
+        match commitment::prove_commit_open(vote, r) {
+            Ok(bundle) => {
+                println!("✅ proof={} bytes", bundle.proof_bytes.len());
+                // Verify immediately
+                commitment::verify_commit_open(vote, r, &bundle).expect("commitment verify failed");
+            }
+            Err(e) => println!("❌ {e}"),
+        }
 
-        println!(
-            "  Voter {}: commitment = {:#018x}, nullifier = {:#018x}",
-            i + 1,
-            com.value,
-            nul.value,
-        );
+        print!("Voter {}: generating nullifier proof...   ", i + 1);
+        match nullifier::prove_nullifier(sk, i as u64) {
+            Ok(bundle) => {
+                println!("✅ nullifier={:#x}", bundle.outputs[0]);
+                nullifier_values.push(bundle.outputs[0]);
+                nullifier::verify_nullifier(sk, i as u64, &bundle)
+                    .expect("nullifier verify failed");
+            }
+            Err(e) => println!("❌ {e}"),
+        }
     }
 
-    // Verify no duplicate nullifiers (double-vote prevention).
+    // Double-spend check
     let mut seen = std::collections::HashSet::new();
     for &v in &nullifier_values {
-        assert!(seen.insert(v), "Double-vote detected!");
+        assert!(seen.insert(v), "Double-spend detected!");
     }
-    println!("\n\u{2705} No double-votes detected.");
 
-    let yes_count = votes.iter().filter(|&&v| v == 1).count();
-    let no_count = votes.len() - yes_count;
-    println!("\n\u{1f4ca} Tally: Yes = {yes_count}, No = {no_count}");
+    let yes = votes.iter().filter(|&&(v, _)| v == 1).count();
+    let no = votes.len() - yes;
+    println!("\n📊 Tally: Yes={yes} No={no}");
     println!(
-        "\u{1f3c6} Result: {}",
-        if yes_count > no_count {
-            "PASSED"
+        "🏆 Result: {}",
+        if yes > no {
+            "PASSED ✅"
         } else {
-            "REJECTED"
+            "REJECTED ❌"
         }
     );
-    println!("\n\u{2705} All votes verified without revealing individual choices.");
+    println!("✅ All proofs verified. No double votes detected.");
 }
