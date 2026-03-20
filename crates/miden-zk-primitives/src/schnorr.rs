@@ -6,33 +6,47 @@
 //!
 //! ## Simplified protocol (educational)
 //!
-//! We use Miden VM's `hperm` to compute the challenge hash and
-//! `u32` arithmetic for the scalar equation `s·G = R + e·pk`.
-//! In the 32-bit group `G = 0x9e379b9` is the generator constant.
+//! We use a lightweight challenge hash and `u32` arithmetic for the scalar
+//! equation `s·G = R + e·pk`.  In this 32-bit group `G = 0x07574e4b`
+//! (a small prime that fits comfortably in `u32`).
 
 use crate::utils::{prove_program, verify_proof, ProofBundle};
 
 /// Generator constant (32-bit safe for `u32` ops in Miden).
-const G: u64 = 0x0757_4e4b; // a prime, fits in u32
+const G: u64 = 0x0757_4e4b; // fits in u32
 
-/// MASM: verify Schnorr signature equation `s*G == R + e*pk`.
-/// Public inputs: `[pk, R, e, s]`
+/// MASM: verify Schnorr equation `s*G == R + e*pk`.
+///
+/// Public inputs (bottom → top): `[pk, R, e, s]`
+///
+/// Stack trace (top shown first):
+/// ```text
+/// [s, e, R, pk]
+/// push G → mul          → [s*G, e, R, pk]
+/// swap                  → [e, s*G, R, pk]
+/// movup.3               → [pk, e, s*G, R]
+/// mul e*pk              → [e*pk, s*G, R]
+/// movup.2               → [R, e*pk, s*G]
+/// add R+e*pk            → [R+e*pk, s*G]
+/// swap                  → [s*G, R+e*pk]
+/// assert_eq             → []   (or trap)
+/// push.1                → [1]
+/// ```
 const SCHNORR_VERIFY_MASM: &str = "
 begin
     # Stack: [s, e, R, pk]  (top = s)
-    # Compute s*G
-    dup.0
-    push.119181899   # G constant
-    u32wrapping_mul  # s*G
-    # Compute e*pk
-    movup.1          # bring e to top: [e, s*G, R, pk]
-    movup.3          # bring pk: [pk, e, s*G, R]
-    u32wrapping_mul  # e*pk
-    # Compute R + e*pk
-    movup.2          # bring R: [R, e*pk, s*G]
-    u32wrapping_add  # R + e*pk
-    # Check s*G == R + e*pk
-    movup.1          # [s*G, R+e*pk]
+    # Compute s*G  (push G then multiply — no dup needed)
+    push.119181899       # G constant  [G, s, e, R, pk]
+    u32wrapping_mul      # [s*G, e, R, pk]
+    # Bring e to top, then pk, multiply to get e*pk
+    swap                 # [e, s*G, R, pk]
+    movup.3              # [pk, e, s*G, R]
+    u32wrapping_mul      # [e*pk, s*G, R]
+    # Bring R to top and add
+    movup.2              # [R, e*pk, s*G]
+    u32wrapping_add      # [R+e*pk, s*G]
+    # Compare s*G == R+e*pk
+    swap                 # [s*G, R+e*pk]
     assert_eq
     push.1
 end
@@ -42,10 +56,10 @@ end
 ///
 /// # Arguments
 ///
-/// * `pk` — public key (secret_key * G mod 2^32)
+/// * `pk`      — public key (secret_key * G mod 2^32)
 /// * `r_point` — nonce commitment (r * G mod 2^32)
-/// * `e` — challenge hash (H(R || pk || message))
-/// * `s` — response scalar (r + e * sk)
+/// * `e`       — challenge hash (H(R || pk || message))
+/// * `s`       — response scalar (r + e * sk mod 2^32)
 ///
 /// # Errors
 ///

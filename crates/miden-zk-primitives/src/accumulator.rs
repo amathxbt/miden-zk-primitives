@@ -7,20 +7,40 @@
 use crate::utils::{prove_program, verify_proof, ProofBundle};
 
 /// MASM: verify `witness * factor(element) == accumulator_value`.
-/// Public inputs: `[acc_value, element, witness]`
+///
+/// Public inputs (bottom → top): `[acc_value, element, witness]`
+///
+/// Stack trace (top first):
+/// ```text
+/// [witness, element, acc_value]
+/// swap                  → [element, witness, acc_value]
+/// dup                   → [element, element, witness, acc_value]
+/// movdn.2               → [element, witness, element, acc_value]
+/// push.C / mul / …      → [factor, witness, element, acc_value]
+/// swap                  → [witness, factor, element, acc_value]
+/// mul                   → [witness*factor, element, acc_value]
+/// movup.2               → [acc_value, witness*factor, element]
+/// assert_eq             → [element]
+/// drop / push.1         → [1]
+/// ```
 const ACC_VERIFY_MASM: &str = "
 begin
-    # Stack: [witness, element, acc_value]
-    # Compute factor = (element * PRIME) | 1  so it's always odd
-    dup.1                  # [element, witness, element, acc_value]
+    # Stack: [witness, element, acc_value]  (top = witness)
+    # --- duplicate element (index 1) without dup.1 ---
+    swap                   # [element, witness, acc_value]
+    dup                    # [element, element, witness, acc_value]
+    movdn.2                # [element, witness, element, acc_value]
+    # --- compute factor = (element * PRIME) | 1 ---
     push.1977382967        # prime-like constant (fits u32)
     u32wrapping_mul        # [element*C, witness, element, acc_value]
     push.1
     u32or                  # force odd: [factor, witness, element, acc_value]
-    movup.1                # [witness, factor, element, acc_value]
+    # --- compute witness * factor ---
+    swap                   # [witness, factor, element, acc_value]
     u32wrapping_mul        # [witness*factor, element, acc_value]
+    # --- assert witness*factor == acc_value ---
     movup.2                # [acc_value, witness*factor, element]
-    assert_eq              # witness*factor == acc_value?
+    assert_eq              # witness*factor == acc_value?  pops both → [element]
     drop                   # drop element
     push.1
 end

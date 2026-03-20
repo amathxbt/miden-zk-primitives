@@ -82,8 +82,7 @@ pub fn verify_proof(masm_src: &str, inputs: &[u64], bundle: &ProofBundle) -> Res
 
     // miden-vm 0.11: verify(ProgramInfo, StackInputs, StackOutputs, ExecutionProof)
     // Kernel::new(&[]) creates an empty kernel (no procedure hashes).
-    let kernel =
-        Kernel::new(&[]).map_err(|e| format!("kernel: {e}"))?;
+    let kernel = Kernel::new(&[]).map_err(|e| format!("kernel: {e}"))?;
     let program_info = ProgramInfo::new(program.hash(), kernel);
     verify(program_info, stack_inputs, stack_outputs, proof).map_err(|e| format!("verify: {e}"))?;
 

@@ -7,14 +7,14 @@
 //!
 //! ```text
 //! begin
-//!   # Stack: [max, min, value]
-//!   dup.0   # duplicate value
-//!   movup.2 # bring min to top
-//!   u32gte  # value >= min?  (1 = yes)
-//!   assert  # abort if value < min
-//!   u32lte  # value <= max?  (1 = yes)
-//!   assert  # abort if value > max
-//!   push.1  # success
+//!   # Stack (top→bottom): value, min, max
+//!   dup             # duplicate value
+//!   movup.2         # bring min to top  → [min, value, value, max]
+//!   u32gte          # second(value) >= top(min)?  pushed as 1/0
+//!   assert          # abort if value < min
+//!   u32lte          # top(value) <= second(max)?  pushed as 1/0
+//!   assert          # abort if value > max
+//!   push.1          # success
 //! end
 //! ```
 //!
@@ -29,14 +29,13 @@ use crate::utils::{prove_program, verify_proof, ProofBundle};
 const RANGE_MASM: &str = "
 begin
     # Stack: [value, min, max]  (top = value)
-    dup.0         # [value, value, min, max]
-    movup.2       # [min, value, value, max]
-    u32gte        # [value>=min, value, max]
-    assert        # abort if value < min
-    movup.1       # [value, max]
-    u32lte        # [value<=max]
-    assert        # abort if value > max
-    push.1        # explicit success signal
+    dup             # [value, value, min, max]
+    movup.2         # [min, value, value, max]
+    u32gte          # [value>=min, value, max]  (second>=top)
+    assert          # abort if value < min; stack: [value, max]
+    u32lte          # [value<=max]  (top<=second)
+    assert          # abort if value > max
+    push.1          # explicit success signal
 end
 ";
 
