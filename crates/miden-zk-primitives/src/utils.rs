@@ -1,8 +1,12 @@
-//! Shared helpers: compile + prove + verify a MASM program.
+//! Shared helpers: compile + prove + verify a MASM program via Miden VM.
 //!
-//! Uses the **real** Miden VM 0.11 API:
-//! - [`miden_vm::prove`] — generates a genuine STARK proof
-//! - [`miden_vm::verify`] — verifies the proof without re-executing
+//! Every primitive in this crate calls these two functions, which wrap the
+//! **real** Miden VM 0.11 API:
+//!
+//! - [`miden_vm::prove`] — generates a genuine STARK proof (Winterfell backend)
+//! - [`miden_vm::verify`] — verifies the proof without re-executing the program
+//!
+//! Nothing here is simulated or mocked.
 
 use miden_vm::{
     prove, verify, Assembler, DefaultHost, ExecutionProof, ProvingOptions, StackInputs,
@@ -10,20 +14,23 @@ use miden_vm::{
 };
 
 /// A serialised STARK proof together with the public stack outputs.
+///
+/// Store `proof_bytes` anywhere you like; pass it (and the same `inputs`) to
+/// [`verify_proof`] to confirm the computation was executed honestly.
 #[derive(Debug, Clone)]
 pub struct ProofBundle {
-    /// Raw proof bytes — store, send, or verify later.
+    /// Raw STARK proof bytes — store, transmit, or verify later.
     pub proof_bytes: Vec<u8>,
-    /// The stack outputs produced by the program (top elements, as u64).
+    /// The top-16 stack outputs produced by the program (as `u64`).
     pub outputs: Vec<u64>,
 }
 
-/// Compile `masm_src`, run it with `inputs` on the stack, and return a real
-/// STARK [`ProofBundle`].
+/// Compile `masm_src` via the Miden assembler, run it with `inputs` on the
+/// stack, and return a real STARK [`ProofBundle`].
 ///
 /// # Errors
 ///
-/// Returns a `String` describing the first failure (compile / prove).
+/// Returns a `String` describing the first failure (compile / execute / prove).
 pub fn prove_program(masm_src: &str, inputs: &[u64]) -> Result<ProofBundle, String> {
     let assembler = Assembler::default();
     let program = assembler
@@ -37,9 +44,9 @@ pub fn prove_program(masm_src: &str, inputs: &[u64]) -> Result<ProofBundle, Stri
     let (outputs, proof) = prove(&program, stack_inputs, host, ProvingOptions::default())
         .map_err(|e| format!("prove: {e}"))?;
 
-    // Convert felt elements to u64
+    // Convert Felt elements to u64 (top 16 stack slots)
     let out_vec: Vec<u64> = outputs
-        .stack_truncated(outputs.stack_truncated(16).len())
+        .stack_truncated(16)
         .iter()
         .map(|f| f.as_int())
         .collect();
@@ -51,6 +58,9 @@ pub fn prove_program(masm_src: &str, inputs: &[u64]) -> Result<ProofBundle, Stri
 }
 
 /// Verify a [`ProofBundle`] against `masm_src` and `inputs`.
+///
+/// Re-compiles the program to get its hash, then calls [`miden_vm::verify`]
+/// with the serialised proof — no re-execution required.
 ///
 /// # Errors
 ///
@@ -70,7 +80,7 @@ pub fn verify_proof(masm_src: &str, inputs: &[u64], bundle: &ProofBundle) -> Res
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
         .map_err(|e| format!("deserialise proof: {e}"))?;
 
-    // verify() in miden-vm 0.11 takes (program_hash, stack_inputs, stack_outputs, proof)
+    // miden-vm 0.11: verify(program_hash, stack_inputs, stack_outputs, proof)
     verify(program.hash(), stack_inputs, stack_outputs, proof)
         .map_err(|e| format!("verify: {e}"))?;
 
