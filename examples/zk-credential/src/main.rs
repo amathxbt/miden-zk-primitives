@@ -1,38 +1,42 @@
-//! ZK credential: prove membership in an allowlist without revealing identity.
+//! ZK credential — prove accumulator membership via real Miden STARK proof.
+//!
+//! The issuer builds an accumulator over approved credential hashes.
+//! A credential holder proves membership without revealing their identity.
 
-use miden_zk_primitives::set_membership::SetMembershipProof;
+use miden_zk_primitives::accumulator::{
+    build_accumulator, compute_witness, prove_membership, verify_membership,
+};
 
 fn main() {
-    println!("=== Miden ZK Credential Demo ===\n");
+    println!("=== Miden ZK Credential (Real STARK Proofs) ===\n");
 
-    // Allowlisted members (e.g. verified KYC IDs, hashed).
-    let allowlist: Vec<u64> = vec![
-        0xdead_beef_0000_0001,
-        0xdead_beef_0000_0002,
-        0xdead_beef_0000_0003,
-        0xdead_beef_0000_0004,
-    ];
+    // Approved credentials (e.g. hashed KYC IDs)
+    let credentials: Vec<u64> = vec![0xDEAD_0001, 0xDEAD_0002, 0xDEAD_0003, 0xDEAD_0004];
 
-    // Prover knows they are member #3 but reveals only the proof.
-    let my_index = 2usize; // 0-indexed
-    let stranger_index = 99usize;
+    let acc = build_accumulator(&credentials);
+    println!("Accumulator value: {acc:#x}");
+    println!("Credential count:  {}\n", credentials.len());
 
-    println!("Allowlist size: {}", allowlist.len());
-    println!("Proving membership for a hidden identity...\n");
+    // Member proves they hold credential 0xDEAD_0003
+    let my_cred = 0xDEAD_0003_u64;
+    let witness = compute_witness(&credentials, my_cred).expect("credential not found");
 
-    match SetMembershipProof::prove(&allowlist, my_index) {
-        Ok(proof) => {
-            let valid = proof.verify(&allowlist);
-            println!("  \u{2705} Proof generated. Valid: {valid}");
-            println!("  (No individual identity was revealed)");
+    println!("Proving membership for credential (hidden from verifier)...");
+    match prove_membership(acc, my_cred, witness) {
+        Ok(bundle) => {
+            println!("✅ Proof generated ({} bytes)", bundle.proof_bytes.len());
+            match verify_membership(acc, my_cred, witness, &bundle) {
+                Ok(()) => println!("✅ Proof VERIFIED — credential accepted"),
+                Err(e) => println!("❌ Verify failed: {e}"),
+            }
         }
-        Err(e) => println!("  \u{274c} Proof generation failed: {e}"),
+        Err(e) => println!("❌ Prove failed: {e}"),
     }
 
-    println!();
-    println!("Attempting proof for non-member...");
-    match SetMembershipProof::prove(&allowlist, stranger_index) {
-        Ok(_) => println!("  \u{26a0}\u{fe0f}  Unexpected success"),
-        Err(e) => println!("  \u{2705} Correctly rejected: {e}"),
+    println!("\nAttempting non-member proof...");
+    let stranger = 0xDEAD_9999_u64;
+    match compute_witness(&credentials, stranger) {
+        None => println!("✅ Correctly rejected: stranger not in accumulator"),
+        Some(_) => println!("❌ Unexpected: stranger found a witness"),
     }
 }
