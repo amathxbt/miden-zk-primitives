@@ -8,7 +8,7 @@ use miden_vm::{
 #[derive(Debug, Clone)]
 pub struct ProofBundle {
     pub proof_bytes: Vec<u8>,
-    pub stack_outputs: Vec<u64>,
+    pub outputs: Vec<u64>,
     pub program_hash: [u8; 32],
 }
 
@@ -40,7 +40,7 @@ pub fn prove_program(
         .unwrap_or([0u8; 32]);
     Ok(ProofBundle {
         proof_bytes,
-        stack_outputs: outputs,
+        outputs,
         program_hash: hash_bytes,
     })
 }
@@ -56,7 +56,7 @@ pub fn verify_program(
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
         .map_err(|e| e.to_string())?;
     let stack_outputs = StackOutputs::try_from_ints(
-        bundle.stack_outputs.iter().copied()
+        bundle.outputs.iter().copied()
     ).map_err(|e| e.to_string())?;
     let kernel = miden_vm::Kernel::default();
     let program_info = ProgramInfo::new(program.hash(), kernel);

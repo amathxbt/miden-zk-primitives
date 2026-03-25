@@ -13,6 +13,12 @@ pub fn compute_witness(elements: &[u64], target: u64) -> Option<u64> {
     Some(elements.iter().filter(|&&e| e != target).fold(1u64, |acc, &e| acc.wrapping_mul(e.wrapping_add(31337))))
 }
 
+/// Returns the factor for `element` in the accumulator (i.e. `element + 31337`).
+/// Exposed so callers can inspect or log the factor without recomputing it.
+pub fn element_factor(element: u64) -> u64 {
+    element.wrapping_add(31337)
+}
+
 pub fn prove_membership(accumulator: u64, element: u64, witness: u64) -> Result<ProofBundle, String> {
     prove_program(&acc_src(witness, element.wrapping_add(31337), accumulator), &[])
 }
