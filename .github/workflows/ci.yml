@@ -12,24 +12,24 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  # ── Job 1: Check & Lint (fast path, no codegen) ──────────────────────────
   check:
     name: Check & Lint
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      RUSTFLAGS: "-D warnings"
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust stable (rustfmt + clippy)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup component add rustfmt clippy
+          rustc --version
+          cargo --version
 
-      - name: Cache Cargo registry
+      - name: Cache
         uses: actions/cache@v4
         with:
           path: |
@@ -37,21 +37,19 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-check-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-check-
             ${{ runner.os }}-cargo-
 
-      - name: cargo fmt --check
+      - name: Check format
         run: cargo fmt --all -- --check
 
-      - name: cargo clippy
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: cargo check
+      - name: Type check
         run: cargo check --workspace --all-targets
 
-  # ── Job 2: Build & Test ──────────────────────────────────────────────────
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
@@ -59,13 +57,17 @@ jobs:
     needs: check
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        run: |
+          rustup update stable
+          rustup default stable
+          rustc --version
+          cargo --version
 
-      - name: Cache Cargo registry
+      - name: Cache
         uses: actions/cache@v4
         with:
           path: |
@@ -73,14 +75,10 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-build-
             ${{ runner.os }}-cargo-
 
-      # Compile all tests without running (catches compilation errors in test code).
-      # Proof-generating tests are annotated #[ignore] and skipped by default.
-      # Run them locally with: cargo test --workspace -- --ignored
       - name: Compile tests (no run)
         run: cargo test --workspace --lib --no-run
 
