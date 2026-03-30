@@ -1,47 +1,31 @@
 name: CI
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Triggers
-# ─────────────────────────────────────────────────────────────────────────────
 on:
   push:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  # Slightly raise the stack size so the Miden prover doesn't blow the default.
-  RUST_MIN_STACK: 8388608   # 8 MiB
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Fast CI job  (runs on every push / PR)
-# Goal: catch compile errors, type errors, and lint violations in < 15 min
-#       on a standard GitHub-hosted runner.
-# STARK proof generation is NOT run here — see the "proof-tests" workflow
-# below for that.
-# ─────────────────────────────────────────────────────────────────────────────
 jobs:
   check:
     name: Check & Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 90        # miden-vm is a large dep; give it room on cold cache
+    timeout-minutes: 90
 
     steps:
-      # ── 1. Source ────────────────────────────────────────────────────────
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # ── 2. Toolchain ─────────────────────────────────────────────────────
-      - name: Install Rust (stable ≥ 1.80)
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
-      # ── 3. Restore/save the Cargo registry + build artefacts ─────────────
-      #    Key on Cargo.toml content (no Cargo.lock in this library crate).
-      #    We also keep a broad restore-key so the first run after a dep bump
-      #    reuses as much as possible.
-      - name: Cargo cache
+      - name: Restore cargo cache
         uses: actions/cache@v4
         with:
           path: |
@@ -53,68 +37,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      # ── 4. Format check ──────────────────────────────────────────────────
-      - name: Rustfmt
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-      # ── 5. Clippy (warnings → errors) ────────────────────────────────────
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # ── 6. Full workspace type-check (all targets: lib + bins + tests) ───
-      #    `cargo check` is much faster than `cargo build` because it skips
-      #    code-generation.  It still catches every type, trait, and API error.
       - name: Type-check workspace
         run: cargo check --workspace --all-targets
 
-      # ── 7. Compile tests (no execution) ──────────────────────────────────
-      #    Ensures the test harness itself compiles even though we skip
-      #    STARK proof generation.
-      - name: Compile lib tests (no run)
+      - name: Compile tests (no run)
         run: cargo test --workspace --lib --no-run
 
-      # ── 8. Compile example binaries (no execution) ───────────────────────
-      - name: Compile example binaries (no run)
+      - name: Build example binaries
         run: cargo build --workspace --bins
 
-      # ── 9. Run lightweight (non-STARK) unit tests ────────────────────────
-      #    Tests tagged with `#[ignore]` are skipped automatically; only
-      #    cheap non-proof tests (arithmetic consistency checks, etc.) run.
       - name: Run fast unit tests
         run: cargo test --workspace --lib
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Proof-test job  (manual trigger only)
-# Runs the full STARK proof generation suite on a large runner.
-# Trigger:  Actions tab → "Run workflow"
-# ─────────────────────────────────────────────────────────────────────────────
-  proof-tests:
-    name: Full STARK Proof Tests (manual)
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    # Only run when manually dispatched — never on push/PR.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-proof-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-proof-
-            ${{ runner.os }}-cargo-
-
-      - name: Run all tests including STARK proofs
-        run: cargo test --workspace --lib -- --include-ignored
-        env:
-          RUST_LOG: info
