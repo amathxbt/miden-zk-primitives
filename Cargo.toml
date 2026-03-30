@@ -16,9 +16,9 @@ license    = "MIT"
 repository = "https://github.com/amathxbt/miden-zk-primitives"
 authors    = ["amathxbt"]
 
-# Pin the exact release so that CI always resolves the same crate and the
-# public API never shifts underneath us between patch bumps.
 [workspace.dependencies]
+# Pin to an exact patch version to guarantee reproducible CI builds.
+# Bump only after verifying API compatibility.
 miden-vm = { version = "=0.11.0", features = ["std"] }
 
 [profile.release]
@@ -26,8 +26,6 @@ lto           = true
 codegen-units = 1
 opt-level     = 3
 
-# A dedicated dev profile for CI: faster incremental compiles,
-# enough optimisation to keep proof generation sane.
-[profile.ci]
-inherits  = "dev"
+# Faster debug builds — avoids re-compiling Miden VM with full debug info.
+[profile.dev]
 opt-level = 1

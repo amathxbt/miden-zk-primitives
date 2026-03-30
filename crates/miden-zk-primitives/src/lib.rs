@@ -1,53 +1,40 @@
 //! # miden-zk-primitives
 //!
-//! Production-quality zero-knowledge primitives built on the real
-//! [Miden VM](https://github.com/0xMiden/miden-vm) (STARK-based, no trusted setup).
+//! Production-ready zero-knowledge primitives built on the real Miden VM
+//! (STARK-based, no trusted setup).
 //!
 //! ## Primitives
 //!
-//! | Module | Primitive | MASM instruction |
-//! |--------|-----------|-----------------|
-//! | [`commitment`] | Pedersen-style commitment | `hperm` |
-//! | [`nullifier`]  | Double-spend nullifier    | `hperm` |
-//! | [`range_proof`]| Range proof `lo ≤ v ≤ hi` | `u32gte` / `u32lte` |
-//! | [`merkle`]     | Merkle membership         | `mtree_verify` |
-//! | [`schnorr`]    | Schnorr-style signature   | `hperm` |
-//! | [`accumulator`]| Accumulator membership    | `mul` (Goldilocks) |
-//! | [`set_membership`] | Re-export of accumulator | — |
+//! | Module | Description |
+//! |--------|-------------|
+//! | [`commitment`] | Pedersen-style commitment via RPO hash |
+//! | [`nullifier`] | Nullifier to prevent double-spending |
+//! | [`range_proof`] | Range proof: prove `lo ≤ value ≤ hi` |
+//! | [`merkle`] | Merkle membership via `mtree_verify` |
+//! | [`schnorr`] | Schnorr signature verification proof |
+//! | [`accumulator`] | RSA-style accumulator membership |
+//! | [`set_membership`] | Re-exports of accumulator primitives |
 //!
 //! ## Quick start
 //!
-//! ```toml
-//! # Cargo.toml
-//! [dependencies]
-//! miden-zk-primitives = { git = "https://github.com/amathxbt/miden-zk-primitives" }
-//! ```
+//! ```rust,no_run
+//! use miden_zk_primitives::commitment::{prove_commit_open, verify_commit_open};
 //!
-//! ```rust,ignore
-//! use miden_zk_primitives::commitment;
+//! let value = 42u64;
+//! let randomness = 99u64;
 //!
-//! let bundle = commitment::prove_commit_open(42, /*randomness=*/ 7).unwrap();
-//! commitment::verify_commit_open(42, 7, &bundle).unwrap();
-//! println!("Proof size: {} bytes", bundle.proof_bytes.len());
-//! ```
-//!
-//! ## Running the heavy proof tests
-//!
-//! All STARK-proof-generating tests are marked `#[ignore]` so that `cargo test`
-//! finishes in seconds on any machine.  To run them locally (requires ~4 GB RAM
-//! and a few minutes):
-//!
-//! ```bash
-//! cargo test -p miden-zk-primitives -- --ignored
+//! let bundle = prove_commit_open(value, randomness).expect("prove failed");
+//! verify_commit_open(value, randomness, &bundle).expect("verify failed");
+//! println!("Commitment proof verified ✓");
 //! ```
 
-pub mod accumulator;
-pub mod commitment;
-pub mod merkle;
-pub mod nullifier;
-pub mod range_proof;
-pub mod schnorr;
-pub mod set_membership;
 pub mod utils;
+pub mod commitment;
+pub mod range_proof;
+pub mod nullifier;
+pub mod merkle;
+pub mod schnorr;
+pub mod accumulator;
+pub mod set_membership;
 
 pub use utils::ProofBundle;

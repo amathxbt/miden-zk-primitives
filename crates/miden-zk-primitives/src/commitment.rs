@@ -1,34 +1,36 @@
-//! Pedersen-style commitment via Miden VM's RPO hash permutation.
+//! Pedersen-style commitment using Miden VM's built-in RPO hash permutation.
 //!
-//! The prover commits to `(value, randomness)` by running the ten-element
-//! `hperm` permutation.  The commitment (output state) is the ZK proof output;
-//! the STARK proof guarantees the committed pair produced that output without
-//! revealing the pre-image.
+//! # Protocol
+//!
+//! The commitment is `H(value ‖ randomness)` where `H` is the RPO-256
+//! hash computed by the Miden `hperm` instruction.  The prover places
+//! `value` and `randomness` onto the stack, calls `hperm`, and the
+//! resulting top-of-stack words form the commitment.  The STARK proof
+//! certifies that the prover knows the opening `(value, randomness)`.
+//!
+//! > **Note**: `hperm` absorbs a 12-element state (`[rate ‖ capacity]`).
+//! > We pre-fill the first 10 elements with zeros and place our two
+//! > secret values into the top two rate positions.
 
 use crate::utils::{prove_program, verify_program, ProofBundle};
 
-/// MASM program: initialise the RPO state with ten zeros, then run one
-/// `hperm` round.  Public inputs are pushed *before* the program runs
-/// (i.e. they sit below the synthesised zero-pad on the stack), but the
-/// current impl uses `prove_program` with explicit inputs which the VM
-/// places on the stack before execution.
-const COMMITMENT_SRC: &str = "\
+/// MASM program: push 10 zeros (hperm padding), apply the permutation.
+/// Inputs are pushed last, so they sit at the top of the stack when
+/// `hperm` reads them.
+const COMMITMENT_SRC: &str = "
 begin
     push.0.0.0.0.0.0.0.0.0.0
     hperm
 end
 ";
 
-/// Prove a commitment to `(value, randomness)` using a real Miden STARK proof.
-///
-/// The two values are pushed onto the stack before the RPO permutation runs;
-/// the digest (output state) constitutes the commitment and is recorded in
-/// `ProofBundle::outputs`.
+/// Prove that you know `(value, randomness)` such that
+/// `H(value ‖ randomness)` is the commitment.
 pub fn prove_commit_open(value: u64, randomness: u64) -> Result<ProofBundle, String> {
     prove_program(COMMITMENT_SRC, &[randomness, value])
 }
 
-/// Verify the commitment proof produced by [`prove_commit_open`].
+/// Verify the commitment opening proof.
 pub fn verify_commit_open(
     value: u64,
     randomness: u64,
@@ -37,22 +39,12 @@ pub fn verify_commit_open(
     verify_program(COMMITMENT_SRC, &[randomness, value], bundle)
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// STARK proof test — generates a real Winterfell proof.
-    /// Marked `#[ignore]` because proof generation requires substantial RAM
-    /// and CPU time that exceeds typical CI runner budgets.
-    ///
-    /// Run locally with:
-    /// ```
-    /// cargo test -p miden-zk-primitives -- --ignored
-    /// ```
     #[test]
-    #[ignore = "STARK proof generation — run locally: cargo test -- --ignored"]
+    #[ignore = "generates a real STARK proof (~24 GB RAM); run locally with --ignored"]
     fn test_commit_open() {
         let b = prove_commit_open(42, 7).expect("prove failed");
         verify_commit_open(42, 7, &b).expect("verify failed");

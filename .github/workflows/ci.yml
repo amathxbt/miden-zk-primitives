@@ -9,8 +9,32 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Disable incremental compilation in CI (saves disk space, avoids stale artifacts).
+  CARGO_INCREMENTAL: "0"
+  # Treat all compiler warnings as errors so lint failures surface early.
+  RUSTFLAGS: "-D warnings"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Strategy
+# ─────────────────────────────────────────────────────────────────────────────
+# miden-vm 0.11 is a large crate that takes 20-40 min to compile on a cold
+# GitHub Actions runner.  We therefore:
+#
+#  1. Run `cargo check` + lints (fast, no code generation) in a dedicated job.
+#  2. Build and compile tests (with a 90-min timeout + aggressive caching)
+#     in a separate job that only starts when linting passes.
+#  3. Run only the lightweight unit tests.  All proof-generating tests are
+#     annotated `#[ignore]` and are therefore skipped automatically.
+#     Developers run the heavy tests locally with:
+#
+#       cargo test --workspace -- --ignored
+#
+# ─────────────────────────────────────────────────────────────────────────────
 
 jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 1 — Lint & type-check (no code generation, fast)
+  # ───────────────────────────────────────────────────────────────────────────
   check:
     name: Check & Lint
     runs-on: ubuntu-latest
@@ -46,11 +70,44 @@ jobs:
       - name: Type-check workspace
         run: cargo check --workspace --all-targets
 
+  # ───────────────────────────────────────────────────────────────────────────
+  # Job 2 — Build & Test
+  # ───────────────────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: check
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Compile everything (lib + tests + bins) without running.
+      # This is the most expensive step but catches all compilation errors.
       - name: Compile tests (no run)
         run: cargo test --workspace --lib --no-run
 
       - name: Build example binaries
         run: cargo build --workspace --bins
 
+      # Run only fast unit tests.  Proof-generating tests are #[ignore]
+      # and therefore skipped here.  The #[ignore] attribute also documents
+      # HOW to run them locally (see the ignore message in each test).
       - name: Run fast unit tests
         run: cargo test --workspace --lib

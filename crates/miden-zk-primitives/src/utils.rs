@@ -1,92 +1,98 @@
+//! Core prove/verify helpers wrapping the real Miden VM (0.11.x).
+//!
+//! Every primitive in this crate compiles a MASM source string into a
+//! [`Program`], runs it on the Miden VM to obtain a STARK proof, and
+//! then verifies the proof using the same VM.
+
 use miden_vm::{
-    Assembler, DefaultHost, ExecutionProof, Kernel, ProgramInfo, ProvingOptions, StackInputs,
-    StackOutputs,
+    Assembler, DefaultHost, ExecutionProof,
+    Kernel, ProgramInfo, ProvingOptions,
+    StackInputs, StackOutputs,
 };
 
-/// A self-contained bundle returned by every `prove_*` function.
-///
-/// - `proof_bytes`  — serialised STARK proof (can be sent to a remote verifier)
-/// - `outputs`      — the top-16 stack values after execution (public outputs)
-/// - `program_hash` — the RPO hash of the assembled program (uniquely identifies
-///                    *what* was proved)
+/// A bundle that carries everything a verifier needs: the raw STARK
+/// proof bytes, the public stack outputs, and the program hash.
 #[derive(Debug, Clone)]
 pub struct ProofBundle {
+    /// STARK proof serialised to bytes.
     pub proof_bytes: Vec<u8>,
+    /// Top-of-stack values (up to 16 field elements, as `u64`).
     pub outputs: Vec<u64>,
+    /// 32-byte big-endian program hash (MAST root).
     pub program_hash: [u8; 32],
 }
 
-/// Assemble `source`, execute it on the Miden VM with `inputs` on the stack,
-/// and return a STARK proof together with the public outputs.
-///
-/// # Errors
-/// Returns a human-readable string on any assembly, execution, or proving error.
+/// Compile `source` (MASM), execute it with `inputs` on the stack,
+/// and return a [`ProofBundle`] on success.
 pub fn prove_program(source: &str, inputs: &[u64]) -> Result<ProofBundle, String> {
-    // ── 1. Assemble the MASM source ──────────────────────────────────────────
+    // ── 1. Compile MASM ──────────────────────────────────────────────────────
     let program = Assembler::default()
         .assemble_program(source)
-        .map_err(|e| format!("assembly error: {e}"))?;
+        .map_err(|e| format!("assemble error: {e}"))?;
 
     // ── 2. Build stack inputs ────────────────────────────────────────────────
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
-        .map_err(|e| format!("invalid stack inputs: {e}"))?;
+        .map_err(|e| format!("stack inputs error: {e}"))?;
 
-    // ── 3. Prove execution ───────────────────────────────────────────────────
+    // ── 3. Prove ─────────────────────────────────────────────────────────────
     let host = DefaultHost::default();
-    let proving_options = ProvingOptions::default();
     let (stack_outputs, proof) =
-        miden_vm::prove(&program, stack_inputs, host, proving_options)
+        miden_vm::prove(&program, stack_inputs, host, ProvingOptions::default())
             .map_err(|e| format!("prove error: {e}"))?;
 
-    // ── 4. Collect public outputs (top 16 stack elements) ────────────────────
+    // ── 4. Collect outputs ───────────────────────────────────────────────────
     let outputs: Vec<u64> = stack_outputs
         .stack_truncated(16)
         .iter()
         .map(|v| v.as_int())
         .collect();
 
-    // ── 5. Capture the program hash (identifies what was proved) ─────────────
-    let program_hash: [u8; 32] = program.hash().as_bytes();
+    // ── 5. Serialise proof ───────────────────────────────────────────────────
+    let proof_bytes = proof.to_bytes();
 
-    Ok(ProofBundle {
-        proof_bytes: proof.to_bytes(),
-        outputs,
-        program_hash,
-    })
+    // ── 6. Capture program hash (32-byte array via From impl) ────────────────
+    let hash_digest = program.hash();
+    let program_hash: [u8; 32] = <[u8; 32]>::from(hash_digest);
+
+    Ok(ProofBundle { proof_bytes, outputs, program_hash })
 }
 
-/// Re-assemble `source`, reconstruct the public inputs/outputs from `bundle`,
-/// and call the Miden verifier to check the STARK proof.
-///
-/// # Errors
-/// Returns a human-readable string on any assembly, deserialisation, or
-/// verification error.
+/// Re-assemble `source`, reconstruct inputs/outputs, deserialise the proof
+/// from `bundle`, and call the Miden verifier.
 pub fn verify_program(
     source: &str,
     inputs: &[u64],
     bundle: &ProofBundle,
 ) -> Result<(), String> {
-    // ── 1. Re-assemble to obtain the program hash ────────────────────────────
+    // ── 1. Compile MASM (needed for ProgramInfo) ─────────────────────────────
     let program = Assembler::default()
         .assemble_program(source)
-        .map_err(|e| format!("assembly error: {e}"))?;
+        .map_err(|e| format!("assemble error: {e}"))?;
 
-    // ── 2. Reconstruct public inputs & outputs ───────────────────────────────
+    // ── 2. Build public inputs ───────────────────────────────────────────────
     let stack_inputs = StackInputs::try_from_ints(inputs.iter().copied())
-        .map_err(|e| format!("invalid stack inputs: {e}"))?;
+        .map_err(|e| format!("stack inputs error: {e}"))?;
+
+    // ── 3. Build public outputs ──────────────────────────────────────────────
     let stack_outputs = StackOutputs::try_from_ints(bundle.outputs.iter().copied())
-        .map_err(|e| format!("invalid stack outputs: {e}"))?;
+        .map_err(|e| format!("stack outputs error: {e}"))?;
 
-    // ── 3. Build ProgramInfo (hash + empty kernel) ───────────────────────────
-    let program_info = ProgramInfo::new(program.hash(), Kernel::default());
+    // ── 4. Build ProgramInfo ─────────────────────────────────────────────────
+    //  We use the kernel embedded in the program (always empty for user programs).
+    let program_info = ProgramInfo::from(program);
 
-    // ── 4. Deserialise proof ─────────────────────────────────────────────────
+    // ── 5. Deserialise proof ─────────────────────────────────────────────────
     let proof = ExecutionProof::from_bytes(&bundle.proof_bytes)
         .map_err(|e| format!("proof deserialisation error: {e}"))?;
 
-    // ── 5. Verify — the Ok value is the security level (u32); we discard it ──
+    // ── 6. Verify ────────────────────────────────────────────────────────────
     miden_vm::verify(program_info, stack_inputs, stack_outputs, proof)
         .map_err(|e| format!("verification error: {e}"))?;
 
     Ok(())
 }
+
+// We keep `Kernel` imported so users of the crate can reach it without
+// declaring a separate miden-vm dependency.
+#[allow(unused_imports)]
+pub(crate) use Kernel as _KernelReexport;

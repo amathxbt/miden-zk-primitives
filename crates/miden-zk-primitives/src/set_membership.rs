@@ -1,8 +1,10 @@
-//! Set membership — thin re-export of the accumulator-based implementation.
+//! Set membership proof — thin re-export of the accumulator primitives.
 //!
-//! Use this module when you think in terms of "is element X in set S?"
-//! rather than "does element X have a valid witness for accumulator A?".
+//! A "set" is represented by its RSA-style accumulator value.  A member
+//! can prove membership by supplying their witness (the product of all
+//! other members' factors) along with a STARK proof that
+//! `witness × factor(element) ≡ accumulator (mod 2³²)`.
 
 pub use crate::accumulator::{
-    build_accumulator, compute_witness, element_factor, prove_membership, verify_membership,
+    build_accumulator, compute_witness, prove_membership, verify_membership,
 };

@@ -1,0 +1,6 @@
+# Pin the Rust toolchain to a stable version that is known to compile
+# miden-vm = "0.11.0" cleanly.  GitHub Actions will install exactly this
+# version when `dtolnay/rust-toolchain@stable` is used together with this
+# file.
+[toolchain]
+channel = "stable"

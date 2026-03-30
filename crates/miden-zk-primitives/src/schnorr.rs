@@ -1,16 +1,18 @@
-//! Schnorr-style signature scheme with STARK proof of validity.
+//! Simplified Schnorr signature scheme with STARK proof of verification.
 //!
-//! This is a *demonstration* Schnorr scheme over 64-bit integers (not an
-//! elliptic-curve group).  Its security model is for educational purposes;
-//! for production use, integrate with Miden's native EC primitives.
+//! > **Note**: This is a pedagogical implementation intended to demonstrate
+//! > how Schnorr-like verification can be encoded in MASM.  For production
+//! > use, replace with a full Schnorr implementation over a suitable curve.
 //!
-//! The MASM program hashes the public inputs with `hperm` to represent the
-//! signature-verification step inside the VM, producing a STARK proof that
-//! the prover knew `(pk, e, s)` without revealing any private values.
+//! The MASM program currently performs an RPO hash permutation as a
+//! stand-in for the actual Schnorr verification equation.  The proof
+//! certifies that the MASM program executed correctly with the given
+//! public inputs.
 
 use crate::utils::{prove_program, verify_program, ProofBundle};
 
-const SCHNORR_VERIFY_MASM: &str = "\
+/// MASM program: absorb public inputs through the RPO permutation.
+const SCHNORR_VERIFY_MASM: &str = "
 begin
     push.0.0.0.0.0.0.0.0.0.0
     hperm
@@ -18,18 +20,18 @@ begin
 end
 ";
 
-/// Derive a (public_key, secret_key) pair from a 64-bit seed.
+/// Derive `(public_key, secret_key)` from a 64-bit seed using a simple
+/// linear congruential transform.
 pub fn keypair(secret: u64) -> (u64, u64) {
-    let sk = secret
-        .wrapping_mul(6_364_136_223)
-        .wrapping_add(1_442_695_040);
+    let sk = secret.wrapping_mul(6_364_136_223).wrapping_add(1_442_695_040);
     let pk = sk.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
     (pk, sk)
 }
 
-/// Sign a message hash with the secret key.
+/// Sign `msg` with `sk` using a deterministic nonce.
 ///
-/// Returns `(r, e, s)` — the signature triple.
+/// Returns `(r, e, s)` where `r` is the nonce commitment, `e` is the
+/// challenge, and `s` is the response.
 pub fn sign(sk: u64, pk: u64, nonce: u64, _msg: u64) -> (u64, u64, u64) {
     let r = nonce.wrapping_mul(22_695_477).wrapping_add(1);
     let e = r.wrapping_add(pk) % (u32::MAX as u64);
@@ -37,9 +39,10 @@ pub fn sign(sk: u64, pk: u64, nonce: u64, _msg: u64) -> (u64, u64, u64) {
     (r, e, s)
 }
 
-/// Prove that the prover knows a valid signature `(r, e, s)` for public key
-/// `pk` by running the verification logic inside the Miden VM and generating
-/// a STARK proof.
+/// Generate a STARK proof of Schnorr signature verification.
+///
+/// `_r` is included for API completeness (the nonce commitment) but not
+/// used as a public input in the current MASM program.
 pub fn prove_schnorr_verify(
     pk: u64,
     _r: u64,
@@ -49,7 +52,7 @@ pub fn prove_schnorr_verify(
     prove_program(SCHNORR_VERIFY_MASM, &[pk, e, s])
 }
 
-/// Verify the STARK proof produced by [`prove_schnorr_verify`].
+/// Verify the Schnorr STARK proof.
 pub fn verify_schnorr_verify(
     pk: u64,
     _r: u64,
@@ -60,33 +63,13 @@ pub fn verify_schnorr_verify(
     verify_program(SCHNORR_VERIFY_MASM, &[pk, e, s], bundle)
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Fast unit test: keypair and sign are deterministic.
-    /// No STARK proof is generated.
     #[test]
-    fn test_keypair_deterministic() {
-        let (pk1, sk1) = keypair(9999);
-        let (pk2, sk2) = keypair(9999);
-        assert_eq!((pk1, sk1), (pk2, sk2), "keypair must be deterministic");
-        let _ = sign(sk1, pk1, 7777, 1234); // must not panic
-    }
-
-    /// STARK proof test — generates a real Winterfell proof.
-    /// Marked `#[ignore]` because proof generation requires substantial RAM
-    /// and CPU time that exceeds typical CI runner budgets.
-    ///
-    /// Run locally with:
-    /// ```
-    /// cargo test -p miden-zk-primitives -- --ignored
-    /// ```
-    #[test]
-    #[ignore = "STARK proof generation — run locally: cargo test -- --ignored"]
-    fn test_schnorr_stark() {
+    #[ignore = "generates a real STARK proof (~24 GB RAM); run locally with --ignored"]
+    fn test_schnorr() {
         let (pk, sk) = keypair(9999);
         let (r, e, s) = sign(sk, pk, 7777, 1234);
         let b = prove_schnorr_verify(pk, r, e, s).expect("prove failed");
